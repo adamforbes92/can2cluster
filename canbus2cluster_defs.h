@@ -9,7 +9,7 @@
 #define hasNeedleSweep 1       // do needle sweep on power up? ** CAN CHANGE THIS **
 #define hasGPSSpeed 1          // use GPS module for getting speed - if CAN/gearbox speed sensor isn't available ** CAN CHANGE THIS **
 
-#define needleSweepDelay 5     // delay between next freq.  Increase/decrease to change the sweep time ** CAN CHANGE THIS **
+#define needleSweepDelay 4     // delay between next freq.  Increase/decrease to change the sweep time ** CAN CHANGE THIS **
 #define useEPCShiftLight 1     // use the EPC output as a shift light ** CAN CHANGE THIS **
 #define useEMLShiftLight 1     // use the EML output as a shift light ** CAN CHANGE THIS **
 #define shiftLightRate 60      // flash EPC at xx ms.  Decreasing may lead to a 'constant' light because of the human eye... ** CAN CHANGE THIS **
