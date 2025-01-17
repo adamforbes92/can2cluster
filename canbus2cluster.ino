@@ -1,16 +1,29 @@
 /* 
-Basic CAN-BUS converter to Digital Output.  Used for MK2/MK3 'analog' clusters in ME7.x conversions and will provide an EML/EPC light.
+Basic CAN-BUS converter to Digital Output.  Used for MK2/MK3 'analog' clusters in ME7.x and aftermarket conversions and will provide an EML/EPC light.
 All outputs are configurable between 5/12v Square Wave with definable max limits based on x RPM
 Optional 'traditional' coil output
 Optional EML/EPC output.  EPC can be used as 'shift light', RPM configarble
 Original RPM input is ~500Hz, speed is ~300Hz for VW Clusters.  Adjustable in code
+Optional GPS module for calculating speed if ECU is blind.  Not as accurate but a valid solution...
 
 Forbes-Automotive, 2024
 */
 
+// for CAN
 #include "canbus2cluster_defs.h"
-#include <ESP32_CAN.h>  // for CAN
+#include <ESP32_CAN.h>
 ESP32_CAN<RX_SIZE_256, TX_SIZE_16> chassisCAN;
+
+#include <TinyGPSPlus.h>
+#include <SoftwareSerial.h>
+SoftwareSerial ss(pinRX_GPS, pinTX_GPS);
+TinyGPSPlus gps;
+
+#include <ButtonLib.h>  //include the declaration for this class
+buttonClass btnPadUp(pinPaddleUp, true);
+buttonClass btnPadDown(pinPaddleDown, true);
+buttonClass btnSpare1(pinSpare1, true);
+buttonClass btnSpare2(pinSpare2, true);
 
 // define two hardware timers for RPM & Speed outputs
 hw_timer_t* timer0 = NULL;
@@ -21,20 +34,14 @@ bool speedTrigger = true;
 int frequencyRPM = 20;    // 20 to 20000
 int frequencySpeed = 20;  // 20 to 20000
 
-// temporary status' for EML/ABS/RPM/Speed
-bool vehicleEML = false;
-bool vehicleEPC = false;
-int vehicleRPM = 0;
-int vehicleSpeed = 0;
-int calcSpeed = 0;
-
+//if (1) {  // This contains all the timers/Hz/Freq. stuff.  Literally in a //(1) to let Arduino IDE code-wrap all this...
 // timer for RPM
 void IRAM_ATTR onTimer0() {
   rpmTrigger = !rpmTrigger;
   digitalWrite(pinRPM, rpmTrigger);
-#if hasCoilOutput
-  digitalWrite(pinCoil, rpmTrigger);
-#endif
+  if (hasCoilOutput) {
+    digitalWrite(pinCoil, rpmTrigger);
+  }
 }
 
 // timer for Speed
@@ -65,40 +72,53 @@ void setFrequencySpeed(long frequencyHz) {
   timerAlarmWrite(timer1, 1000000l / frequencyHz, true);
   timerAlarmEnable(timer1);
 }
+//}
 
 void setup() {
-  basicInit();   // basic init for setting up IO / CAN
+  basicInit();   // basic init for setting up IO / CAN / GPS
   setupTimer();  // setup the timers (with a base frequency)
 
-#if (hasNeedleSweep)
-  needleSweep();  // carry out needle sweep if defined
-#endif
+  if (hasNeedleSweep) {
+    needleSweep();  // carry out needle sweep if defined
+  }
 }
 
 void loop() {
-  // get the easy stuff out the way first, check for EML/EPC light and trigger if required
-  digitalWrite(pinEML, vehicleEML);
-  digitalWrite(pinEPC, vehicleEPC);
+  // get the easy stuff out the way first
+  btnPadUp.tick();    // using the 'button' library to detect held or single clicks
+  btnPadDown.tick();  // using the 'button' library to detect held or single clicks
+  btnSpare1.tick();   // using the 'button' library to detect held or single clicks
+  btnSpare2.tick();   // using the 'button' library to detect held or single clicks
+
+  // send CAN data for paddle up/down etc
+
+  if (hasGPSSpeed) {  // GPS if req.
+    parseGPS();
+  }
+
+  digitalWrite(pinEML, vehicleEML);  // Check for EML/EPC light and trigger.  Will be caught by CAN messages
+  digitalWrite(pinEPC, vehicleEPC);  // Check for EML/EPC light and trigger.  Will be caught by CAN messages
 
   // check to see what the current RPM is, if it's over the limit, trigger the EPC or EML light as a warning!
   if (vehicleRPM > shiftLimit) {
-    blinkLED(shiftLightRate, 3, useEPCShiftLight, useEMLShiftLight);  // args: flash rate, number of flashes, use EPC / EML as light
+    blinkLED(shiftLightRate, 3, useEPCShiftLight, useEMLShiftLight, 0, 0);  // args: flash rate, number of flashes, use EPC or use EML as light, RPM/Speed are set to 0, don't use them (kept in for self-test)
+  }
+
+  if (hasError) {
+    digitalWrite(2, HIGH);
+  } else {
+    digitalWrite(2, LOW);
   }
 
   if (selfTest) {
-    int finalFrequencySpeed = map(finalFrequencySpeed, 0, vehicleSpeed, 0, maxSpeed);
-    int finalFrequencyRPM = map(finalFrequencyRPM, 0, vehicleRPM, 0, maxRRM);
-
-    // change the frequency of both RPM & Speed as per CAN information
-    setFrequencySpeed(finalFrequencySpeed);
-    setFrequencyRPM(finalFrequencyRPM);
+    diagTest();
   } else {
     // calculate final frequency:
-    int finalFrequencySpeed = map(finalFrequencySpeed, 0, vehicleSpeed, 0, maxSpeed);
-    int finalFrequencyRPM = map(finalFrequencyRPM, 0, vehicleRPM, 0, maxRRM);
+    finalFrequencySpeed = map(vehicleSpeed, 0, clusterSpeedLimit, 0, maxSpeed);
+    finalFrequencyRPM = map(vehicleRPM, 0, clusterRPMLimit, 0, maxRRM);
 
     // change the frequency of both RPM & Speed as per CAN information
-    setFrequencySpeed(finalFrequencySpeed);
-    setFrequencyRPM(finalFrequencyRPM);
+    setFrequencySpeed(finalFrequencySpeed + 1);  // minimum speed may command 0 and setFreq. will cause crash, so +1 to error 'catch'
+    setFrequencyRPM(finalFrequencyRPM + 1);      // minimum speed may command 0 and setFreq. will cause crash, so +1 to error 'catch'
   }
 }
