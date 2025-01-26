@@ -6,7 +6,7 @@ void basicInit() {
   Serial.println(F("Setting up pins..."));
 #endif
 
-  if (hasGPSSpeed) {
+  if (speedType == 2) {
     ss.begin(baudGPS);
 #if stateDebug
     Serial.println(TinyGPSPlus::libraryVersion());
@@ -33,7 +33,7 @@ void basicInit() {
 
 void setupPins() {
   // define pin modes for outputs
-  pinMode(LED_BUILTIN, OUTPUT); // use the built-in LED for displaying errors!
+  pinMode(onboardLED, OUTPUT); // use the built-in LED for displaying errors!
 
   pinMode(pinRPM, OUTPUT);
   pinMode(pinSpeed, OUTPUT);

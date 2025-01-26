@@ -31,16 +31,9 @@ void onBodyRX(const CAN_message_t& frame) {
 
     case MOTOR2_ID:
       calcSpeed = (frame.buf[3] * 100 * 128) / 10000;
-      vehicleSpeed = (byte)(calcSpeed >= 255 ? 0 : calcSpeed);
       break;
 
     case MOTOR5_ID:
-      // frame[1] > free, bit 0
-      // frame[1] > vorgl lampeu, bit 1
-      // frame[1] > EPC lamp, bit 2
-      // frame[1] > ODB2 (EML?) lamp, bit 3
-      // frame[1] > cat lamp, bit 4
-
       // set EML & EPC based on the bit read (LSB, so backwards)
       vehicleEML = bitRead(frame.buf[1], 5);
       vehicleEPC = bitRead(frame.buf[1], 6);
@@ -49,21 +42,21 @@ void onBodyRX(const CAN_message_t& frame) {
     case MOTOR6_ID:
       if (frame.buf[0] == 0x73 || frame.buf[0] == 0x72) {
         vehicleReverse = true;
-        digitalWrite(pinReverse, HIGH);
+        digitalWrite(pinReverse, HIGH);  // turn relay on...
       } else {
         vehicleReverse = false;
-        digitalWrite(pinReverse, LOW);
+        digitalWrite(pinReverse, LOW);  // turn relay on...
       }
       if (frame.buf[0] == 0x83 || frame.buf[0] == 0x82) {
-        vehiclePark = true;
+        vehiclePark = true;  // unused bool, but a good to have...
       } else {
-        vehiclePark = false;
+        vehiclePark = false;  // unused bool, but a good to have...
       }
       break;
 
     case mWaehlhebel_1_ID:
 #if stateDebug
-    Serial.println(F("Got DSG Gearbox CAN..."));
+      Serial.println(F("Got DSG Gearbox CAN..."));
 #endif
       gear_raw = ((frame.buf[7] & 0b01110000) >> 4) - 1;
       lever_raw = (frame.buf[7] & 0b00000001);
@@ -76,21 +69,21 @@ void onBodyRX(const CAN_message_t& frame) {
       }
 
 #if stateDebug
-    Serial.println(gear_raw);
-    Serial.println(lever_raw);
+      Serial.println(gear_raw);
+      Serial.println(lever_raw);
 #endif
       break;
 
     case gearLever_ID:
 #if stateDebug
-    Serial.println(F("Got Shifter CAN..."));
+      Serial.println(F("Got Shifter CAN..."));
 #endif
       lever = (frame.buf[0] & 0b11110000) >> 4;
 #if stateDebug
-    Serial.println(lever);
+      Serial.println(lever);
 #endif
       break;
-      
+
     default:
       // do nothing...
       break;
@@ -103,12 +96,13 @@ void onBodyRX(const CAN_message_t& frame) {
       case LEVER_TIPTRONIC_ON:
       case LEVER_TIPTRONIC_UP:
       case LEVER_TIPTRONIC_DOWN:
-        vehicleSpeed = dq250_speed(vehicleRPM, gear);
+        dsgSpeed = dq250_speed(vehicleRPM, gear);
 #if stateDebug
         Serial.print(F("DSG Speed:"));
-        Serial.println(vehicleSpeed);
+        Serial.println(dsgSpeed);
 #endif
       default:
+        hasError = true;
         return;
     }
   }
@@ -130,21 +124,43 @@ void onBodyRX(const CAN_message_t& frame) {
 }
 
 void sendPaddleUpFrame() {
-  //canMsg1.can_id = 0x38A;
-  //canMsg1.can_dlc = 4;
-  //canMsg1.data[0] = 0xB7;
-  //    bitSet(mShift[3], 1);
-  //bitClear(mShift[3], 1);
+  CAN_message_t paddlesUp;  //0x7C0
+  paddlesUp.id = GRA_ID;
+  paddlesUp.len = 8;
+  paddlesUp.buf[0] = 0xB7;  //
+  paddlesUp.buf[2] = 0x34;
+  paddlesUp.buf[3] = 0x02;
+  bitSet(paddlesUp.buf[3], 1);         // set high (trigger)
+  if (!chassisCAN.write(paddlesUp)) {  // write CAN frame from the body to the Haldex
+  }
 
-  //canMsg1.data[2] = 0x34;
-  //canMsg1.data[3] = 0x02;
+  paddlesUp.id = GRA_ID;
+  paddlesUp.len = 8;
+  paddlesUp.buf[0] = 0xB7;  //
+  paddlesUp.buf[2] = 0x34;
+  paddlesUp.buf[3] = 0x02;
+  bitSet(paddlesUp.buf[3], 0);         // set low (off)
+  if (!chassisCAN.write(paddlesUp)) {  // write CAN frame from the body to the Haldex
+  }
 }
 
 void sendPaddleDownFrame() {
-  //canMsg2.can_id = 0x38A;
-  //canMsg2.can_dlc = 4;
-  //canMsg2.data[0] = 0xB4;
-  //canMsg2.data[1] = 0x81;
-  //canMsg2.data[2] = 0x34;
-  //canMsg2.data[3] = 0x01;
+  CAN_message_t paddlesDown;  //0x7C0
+  paddlesDown.id = GRA_ID;
+  paddlesDown.len = 8;
+  paddlesDown.buf[0] = 0xB4;  //
+  paddlesDown.buf[2] = 0x34;
+  paddlesDown.buf[3] = 0x01;
+  bitSet(paddlesDown.buf[3], 1);         // set high (trigger)
+  if (!chassisCAN.write(paddlesDown)) {  // write CAN frame from the body to the Haldex
+  }
+
+  paddlesDown.id = GRA_ID;
+  paddlesDown.len = 8;
+  paddlesDown.buf[0] = 0xB4;  //
+  paddlesDown.buf[2] = 0x34;
+  paddlesDown.buf[3] = 0x01;
+  bitSet(paddlesDown.buf[3], 0);         // set low (off)
+  if (!chassisCAN.write(paddlesDown)) {  // write CAN frame from the body to the Haldex
+  }
 }

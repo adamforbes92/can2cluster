@@ -4,36 +4,43 @@
 #define stateDebug 1       // if 1, will use Serial talkback ** CAN CHANGE THIS **
 #define selfTest 0         // increase RPM/speed slowly, flash lights.  For debug only, disable on release! ** CAN CHANGE THIS **
 
-// setup
+// setup - main inputs
 #define hasCoilOutput 1   // is MK2 / use MK2 Output.  Disable if not being used to save power - no point in triggering the relay for something to do... ** CAN CHANGE THIS **
 #define hasNeedleSweep 1  // do needle sweep on power up? ** CAN CHANGE THIS **
-#define hasGPSSpeed 0     // use GPS module for getting speed - if CAN/gearbox speed sensor isn't available ** CAN CHANGE THIS **
+#define speedType 0       // 0 = ECU, 1 = DSG, 2 = GPS
 
+// setup - tweaky things
 #define needleSweepDelay 5  // delay between next freq.  Increase/decrease to change the sweep time ** CAN CHANGE THIS **
 #define useEPCShiftLight 1  // use the EPC output as a shift light ** CAN CHANGE THIS **
 #define useEMLShiftLight 1  // use the EML output as a shift light ** CAN CHANGE THIS **
 #define shiftLightRate 60   // flash EPC at xx ms.  Decreasing may lead to a 'constant' light because of the human eye... ** CAN CHANGE THIS **
 
+// setup - Hz adjustment
 #define maxRRM 480    // max RPM in Hz for the cluster (for needle sweep) ** CAN CHANGE THIS **
 #define maxSpeed 500  // max Speed in Hz for the cluster (for needle sweep).  MK3 default is 500.  MK1/MK2 (has cable), default is xxx ** CAN CHANGE THIS **
 
-// pins
+// setup - RPM & speed limits
 #define clusterRPMLimit 7000   // rpm ** CAN CHANGE THIS **
 #define clusterSpeedLimit 200  // km/h ** CAN CHANGE THIS **
-#define stepRPM 1              // the 'next' step in RPM - so 1 rpm
-#define stepSpeed 1.9          // the 'next' step in speed, so 1.9.  I would have expected a change in total Hz should work?  To test?
-
 #define shiftLimit 6000        // set the RPM limit for the shift light ** CAN CHANGE THIS **
-#define pinRX_CAN 16           // pin output for SN65HVD230 (CAN_RX)
-#define pinTX_CAN 17           // pin output for SN65HVD230 (CAN_TX)
-#define pinRX_GPS 14           // pin output for GPS NEO6M (GPS_RX)
-#define pinTX_GPS 13           // pin output for GPS NEO6M (GPS_TX)
-#define pinCoil 18             // pin output for RPM (MK2/High Output Coil Trigger)
-#define pinEPC 19              // pin output for EPC
-#define pinEML 21              // pin output for EML
-#define pinRPM 22              // pin output for RPM22
-#define pinSpeed 23            // pin output for Speed
 
+// setup - step changes (for needle sweep)
+#define stepRPM 1      // the 'next' step in RPM - so 1 rpm
+#define stepSpeed 1.9  // the 'next' step in speed, so 1.9.  I would have expected a change in total Hz should work?  To test?
+
+// setup - pins (output)
+#define pinRX_CAN 16  // pin output for SN65HVD230 (CAN_RX)
+#define pinTX_CAN 17  // pin output for SN65HVD230 (CAN_TX)
+#define pinRX_GPS 14  // pin output for GPS NEO6M (GPS_RX)
+#define pinTX_GPS 13  // pin output for GPS NEO6M (GPS_TX)
+#define pinCoil 18    // pin output for RPM (MK2/High Output Coil Trigger)
+#define pinEPC 19     // pin output for EPC
+#define pinEML 21     // pin output for EML
+#define pinRPM 22     // pin output for RPM22
+#define pinSpeed 23   // pin output for Speed
+#define onboardLED 2  // pin onboard LED
+
+// setup - pins (inputs)
 #define pinPaddleUp 36    // DSG paddle up
 #define pinPaddleDown 39  // DSG paddle down
 #define pinReverse 26     // pin for relay / reverse
@@ -44,6 +51,7 @@
 #define baudSerial 115200  // baud rate for debug
 #define baudGPS 9600       // baud rate for the GPS device
 
+// DSG variables
 #define PI 3.141592653589793
 #define LEVER_P 0x8               // park position
 #define LEVER_R 0x7               // reverse position
@@ -54,29 +62,36 @@
 #define LEVER_TIPTRONIC_UP 0xA    // tiptronic up
 #define LEVER_TIPTRONIC_DOWN 0xB  // tiptronic down
 
-extern uint16_t vehicleRPM = 1;  // current RPM.  If no CAN, this will catch dividing by zero by the map function
-extern int vehicleSpeed = 1;     // current Speed.  If no CAN, this will catch dividing by zero by the map function
-extern int calcSpeed = 0;        // temp var for calculating speed
-extern int finalFrequencyRPM = 0;
-extern int finalFrequencySpeed = 0;
+extern uint16_t vehicleRPM = 1;      // current RPM.  If no CAN, this will catch dividing by zero by the map function
+extern int vehicleSpeed = 1;         // current Speed.  If no CAN, this will catch dividing by zero by the map function
+extern int calcSpeed = 0;            // temp var for calculating speed
+extern int finalFrequencyRPM = 0;    // final converted RPM into Hz
+extern int finalFrequencySpeed = 0;  // final converted Speed into Hz
 extern int i = 0;
 
-extern uint8_t gear = 0;     // current gear from DSG
-extern uint8_t lever = 0;    // shifter position
+extern double ecuSpeed = 0;  // ECU speed (from analog speed sensor)
 extern double dsgSpeed = 0;  // DSG speed (from RPM & Gear), ratios in '_dsg.ino'
+extern double gpsSpeed = 0;  // GPS speed (from '_gps.ino')
+
+// DSG variables
+extern uint8_t gear = 0;   // current gear from DSG
+extern uint8_t lever = 0;  // shifter position
 extern uint8_t gear_raw = 0;
 extern uint8_t lever_raw = 0;
 
+// ECU variables
 extern bool vehicleEML = false;  // current EML light status
 extern bool vehicleEPC = false;  // current EPC light status
 extern bool vehicleReverse = false;
 extern bool vehiclePark = false;
 
+// external variables / triggers
 extern bool boolPadUp = false;    // current EML light status
 extern bool boolPadDown = false;  // current EPC light status
 extern bool boolSpare1 = false;   // current EML light status
 extern bool boolSpare2 = false;   // current EPC light status
 
+// onboard LED for error
 extern bool hasError = false;
 
 // define CAN Addresses.  All not req. but here for keepsakes

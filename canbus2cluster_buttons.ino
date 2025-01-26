@@ -2,7 +2,7 @@ void padUpFunc() {
   boolPadUp = true;
 }
 void padDownFunc() {
-  boolPadDown = false;
+  boolPadDown = true;
 }
 void spare1Func() {
   boolSpare1 = false;
