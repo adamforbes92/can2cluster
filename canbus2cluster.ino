@@ -5,8 +5,10 @@ Optional 'traditional' coil output
 Optional EML/EPC output.  EPC can be used as 'shift light', RPM configarble
 Original RPM input is ~500Hz, speed is ~300Hz for VW Clusters.  Adjustable in code
 Optional GPS module for calculating speed if ECU is blind.  Not as accurate but a valid solution...
+Built-in LED used for error displaying.  For example - no satellites will illuminate LED
+Added DSG support - gets current gear & rpm and calculates theory speed.  Ratios in '_dsg.ino'
 
-Forbes-Automotive, 2024
+Forbes-Automotive, 2025
 */
 
 // for CAN
@@ -14,11 +16,13 @@ Forbes-Automotive, 2024
 #include <ESP32_CAN.h>
 ESP32_CAN<RX_SIZE_256, TX_SIZE_16> chassisCAN;
 
+// for GPS
 #include <TinyGPSPlus.h>
 #include <SoftwareSerial.h>
 SoftwareSerial ss(pinRX_GPS, pinTX_GPS);
 TinyGPSPlus gps;
 
+// for inputs / paddles
 #include <ButtonLib.h>  //include the declaration for this class
 buttonClass btnPadUp(pinPaddleUp, true);
 buttonClass btnPadDown(pinPaddleDown, true);
@@ -35,43 +39,43 @@ int frequencyRPM = 20;    // 20 to 20000
 int frequencySpeed = 20;  // 20 to 20000
 
 //if (1) {  // This contains all the timers/Hz/Freq. stuff.  Literally in a //(1) to let Arduino IDE code-wrap all this...
-// timer for RPM
-void IRAM_ATTR onTimer0() {
-  rpmTrigger = !rpmTrigger;
-  digitalWrite(pinRPM, rpmTrigger);
-  if (hasCoilOutput) {
-    digitalWrite(pinCoil, rpmTrigger);
+  // timer for RPM
+  void IRAM_ATTR onTimer0() {
+    rpmTrigger = !rpmTrigger;
+    digitalWrite(pinRPM, rpmTrigger);
+    if (hasCoilOutput) {
+      digitalWrite(pinCoil, rpmTrigger);
+    }
   }
-}
 
-// timer for Speed
-void IRAM_ATTR onTimer1() {
-  speedTrigger = !speedTrigger;
-  digitalWrite(pinSpeed, speedTrigger);
-}
+  // timer for Speed
+  void IRAM_ATTR onTimer1() {
+    speedTrigger = !speedTrigger;
+    digitalWrite(pinSpeed, speedTrigger);
+  }
 
-// setup timers
-void setupTimer() {
-  timer0 = timerBegin(0, 80, true);  //div 80
-  timerAttachInterrupt(timer0, &onTimer0, true);
+  // setup timers
+  void setupTimer() {
+    timer0 = timerBegin(0, 80, true);  //div 80
+    timerAttachInterrupt(timer0, &onTimer0, true);
 
-  timer1 = timerBegin(1, 80, true);  //div 80
-  timerAttachInterrupt(timer1, &onTimer1, true);
-}
+    timer1 = timerBegin(1, 80, true);  //div 80
+    timerAttachInterrupt(timer1, &onTimer1, true);
+  }
 
-// adjust output frequency
-void setFrequencyRPM(long frequencyHz) {
-  timerAlarmDisable(timer0);
-  timerAlarmWrite(timer0, 1000000l / frequencyHz, true);
-  timerAlarmEnable(timer0);
-}
+  // adjust output frequency
+  void setFrequencyRPM(long frequencyHz) {
+    timerAlarmDisable(timer0);
+    timerAlarmWrite(timer0, 1000000l / frequencyHz, true);
+    timerAlarmEnable(timer0);
+  }
 
-// adjust output frequency
-void setFrequencySpeed(long frequencyHz) {
-  timerAlarmDisable(timer1);
-  timerAlarmWrite(timer1, 1000000l / frequencyHz, true);
-  timerAlarmEnable(timer1);
-}
+  // adjust output frequency
+  void setFrequencySpeed(long frequencyHz) {
+    timerAlarmDisable(timer1);
+    timerAlarmWrite(timer1, 1000000l / frequencyHz, true);
+    timerAlarmEnable(timer1);
+  }
 //}
 
 void setup() {
@@ -105,7 +109,7 @@ void loop() {
   }
 
   if (hasError) {
-    digitalWrite(2, HIGH);
+    digitalWrite(2, HIGH); // light internal LED
   } else {
     digitalWrite(2, LOW);
   }
