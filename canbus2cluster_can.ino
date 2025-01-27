@@ -88,24 +88,8 @@ void onBodyRX(const CAN_message_t& frame) {
       // do nothing...
       break;
   }
-  // do the calc
-  if (vehicleRPM != 0 && gear != 0) {
-    switch (lever) {
-      case LEVER_D:
-      case LEVER_S:
-      case LEVER_TIPTRONIC_ON:
-      case LEVER_TIPTRONIC_UP:
-      case LEVER_TIPTRONIC_DOWN:
-        dsgSpeed = dq250_speed(vehicleRPM, gear);
-#if stateDebug
-        Serial.print(F("DSG Speed:"));
-        Serial.println(dsgSpeed);
-#endif
-      default:
-        hasError = true;
-        return;
-    }
-  }
+    // do the calc
+
 
 #if stateDebug
   Serial.println();

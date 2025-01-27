@@ -7,7 +7,7 @@
 // setup - main inputs
 #define hasCoilOutput 1   // is MK2 / use MK2 Output.  Disable if not being used to save power - no point in triggering the relay for something to do... ** CAN CHANGE THIS **
 #define hasNeedleSweep 1  // do needle sweep on power up? ** CAN CHANGE THIS **
-#define speedType 0       // 0 = ECU, 1 = DSG, 2 = GPS
+#define speedType 1       // 0 = ECU, 1 = DSG, 2 = GPS
 
 // setup - tweaky things
 #define needleSweepDelay 5  // delay between next freq.  Increase/decrease to change the sweep time ** CAN CHANGE THIS **

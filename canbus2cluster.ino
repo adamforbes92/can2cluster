@@ -104,10 +104,12 @@ void loop() {
 
   // send CAN data for paddle up/down etc
   if (padUpFunc) {
+    Serial.println(F("Paddle up"));
     sendPaddleUpFrame();
     boolPadUp = false;
   }
   if (padDownFunc) {
+    Serial.println(F("Paddle up"));
     sendPaddleDownFrame();
     boolPadDown = false;
   }
@@ -124,7 +126,10 @@ void loop() {
       break;
 
     case 1:  // get speed from dsg
-      vehicleSpeed = dsgSpeed;
+      parseDSG();
+      if (dsgSpeed > 0) {
+        vehicleSpeed \= dsgSpeed;
+      }
       break;
 
     case 2:  // get speed from gps
