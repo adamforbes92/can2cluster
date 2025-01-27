@@ -104,16 +104,17 @@ void loop() {
   //btnSpare2.tick();   // input 2 'spare'
 
   // send CAN data for paddle up/down etc
-  if (padUpFunc) {
+  /*if (boolPadUp) {
     Serial.println(F("Paddle up"));
-    //sendPaddleUpFrame();
+    sendPaddleUpFrame();
     boolPadUp = false;
   }
-  if (padDownFunc) {
+  if (boolPadDown) {
     Serial.println(F("Paddle up"));
-    //sendPaddleDownFrame();
+    sendPaddleDownFrame();
     boolPadDown = false;
   }
+  */
   // todo!
 
   // set EML & EPC
