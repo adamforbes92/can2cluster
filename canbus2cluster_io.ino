@@ -54,11 +54,11 @@ void setupPins() {
 
 void setupButtons() {
   //setup buttons / inputs
-  btnPadUp.attachSingleClick(padUpFunc);      // call intSingle on a single click (single wipe)
-  btnPadDown.attachSingleClick(padDownFunc);  // call intSingle on a single click (single wipe)
+  //btnPadUp.attachSingleClick(padUpFunc);      // call intSingle on a single click (single wipe)
+  //btnPadDown.attachSingleClick(padDownFunc);  // call intSingle on a single click (single wipe)
 
-  btnSpare1.attachSingleClick(spare1Func);  // call intSingle on a single click (single wipe)
-  btnSpare2.attachSingleClick(spare2Func);  // call intSingle on a single click (single wipe)
+  //btnSpare1.attachSingleClick(spare1Func);  // call intSingle on a single click (single wipe)
+  //btnSpare2.attachSingleClick(spare2Func);  // call intSingle on a single click (single wipe)
 }
 
 void needleSweep() {
