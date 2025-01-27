@@ -98,20 +98,20 @@ void loop() {
     digitalWrite(onboardLED, LOW);
   }
 
-  btnPadUp.tick();    // paddle up
-  btnPadDown.tick();  // paddle down
-  btnSpare1.tick();   // input 'spare'
-  btnSpare2.tick();   // input 2 'spare'
+  //btnPadUp.tick();    // paddle up
+  //btnPadDown.tick();  // paddle down
+  //btnSpare1.tick();   // input 'spare'
+  //btnSpare2.tick();   // input 2 'spare'
 
   // send CAN data for paddle up/down etc
   if (padUpFunc) {
     Serial.println(F("Paddle up"));
-    sendPaddleUpFrame();
+    //sendPaddleUpFrame();
     boolPadUp = false;
   }
   if (padDownFunc) {
     Serial.println(F("Paddle up"));
-    sendPaddleDownFrame();
+    //sendPaddleDownFrame();
     boolPadDown = false;
   }
   // todo!
