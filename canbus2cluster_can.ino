@@ -55,9 +55,6 @@ void onBodyRX(const CAN_message_t& frame) {
       break;
 
     case mWaehlhebel_1_ID:
-#if stateDebug
-      Serial.println(F("Got DSG Gearbox CAN..."));
-#endif
       gear_raw = ((frame.buf[7] & 0b01110000) >> 4) - 1;
       lever_raw = (frame.buf[7] & 0b00000001);
 
@@ -67,21 +64,10 @@ void onBodyRX(const CAN_message_t& frame) {
           gear = 1;
         }
       }
-
-#if stateDebug
-      Serial.println(gear_raw);
-      Serial.println(lever_raw);
-#endif
       break;
 
     case gearLever_ID:
-#if stateDebug
-      Serial.println(F("Got Shifter CAN..."));
-#endif
       lever = (frame.buf[0] & 0b11110000) >> 4;
-#if stateDebug
-      Serial.println(lever);
-#endif
       break;
 
     default:

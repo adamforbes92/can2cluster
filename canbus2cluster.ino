@@ -7,6 +7,7 @@ V1.02 - Original RPM input is ~500Hz, speed is ~300Hz for VW Clusters.  Adjustab
 V1.03 - Optional GPS module for calculating speed if ECU is blind.  Not as accurate but a valid solution...
 V1.03 - Built-in LED used for error displaying.  For example - no satellites will illuminate LED
 V1.04 - Added DSG support - gets current gear & rpm and calculates theory speed.  Ratios in '_dsg.ino'
+V1.05 - Check for hanging
 
 Forbes-Automotive, 2025
 */
@@ -128,7 +129,8 @@ void loop() {
     case 1:  // get speed from dsg
       parseDSG();
       if (dsgSpeed > 0) {
-        vehicleSpeed \= dsgSpeed;
+        //vehicleSpeed = 30;
+        vehicleSpeed = int(dsgSpeed);
       }
       break;
 
