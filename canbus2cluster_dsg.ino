@@ -44,6 +44,8 @@ void parseDSG() {
       case LEVER_TIPTRONIC_UP:
       case LEVER_TIPTRONIC_DOWN:
         dsgSpeed = dq250_speed(vehicleRPM, gear);
+        Serial.println(vehicleRPM);
+        Serial.println(gear);
       default:
         hasError = true;
         return;

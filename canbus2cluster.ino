@@ -127,10 +127,12 @@ void loop() {
       vehicleSpeed = (byte)(calcSpeed >= 255 ? 0 : calcSpeed);
       break;
 
-    case 1:  // get speed from dsg
-      parseDSG();
+    case 1:                                       // get speed from dsg
+      if ((millis() - lastMillis) > gearPause) {  // check to see if x ms (linPause) has elapsed - slow down the frames!
+        lastMillis = millis();
+        parseDSG();
+      }
       if (dsgSpeed > 0) {
-        //vehicleSpeed = 30;
         vehicleSpeed = int(dsgSpeed);
       }
       break;

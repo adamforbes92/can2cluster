@@ -8,6 +8,7 @@
 #define hasCoilOutput 1   // is MK2 / use MK2 Output.  Disable if not being used to save power - no point in triggering the relay for something to do... ** CAN CHANGE THIS **
 #define hasNeedleSweep 1  // do needle sweep on power up? ** CAN CHANGE THIS **
 #define speedType 1       // 0 = ECU, 1 = DSG, 2 = GPS
+#define speedUnits 0      // 0 = kph, 1 = mph
 
 // setup - tweaky things
 #define needleSweepDelay 5  // delay between next freq.  Increase/decrease to change the sweep time ** CAN CHANGE THIS **
@@ -61,6 +62,7 @@
 #define LEVER_TIPTRONIC_ON 0xE    // tiptronic
 #define LEVER_TIPTRONIC_UP 0xA    // tiptronic up
 #define LEVER_TIPTRONIC_DOWN 0xB  // tiptronic down
+#define gearPause 100                                             // Send packets every x ms ** CAN CHANGE THIS **
 
 extern uint16_t vehicleRPM = 1;      // current RPM.  If no CAN, this will catch dividing by zero by the map function
 extern int vehicleSpeed = 1;         // current Speed.  If no CAN, this will catch dividing by zero by the map function
@@ -78,6 +80,7 @@ extern uint8_t gear = 0;   // current gear from DSG
 extern uint8_t lever = 0;  // shifter position
 extern uint8_t gear_raw = 0;
 extern uint8_t lever_raw = 0;
+uint32_t lastMillis = 0;                                                     // Counter for sending frames x ms
 
 // ECU variables
 extern bool vehicleEML = false;  // current EML light status
