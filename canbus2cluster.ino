@@ -1,6 +1,6 @@
 /* 
 Basic CAN-BUS converter to Digital Output.  Used for MK2/MK3 'analog' clusters in ME7.x and aftermarket conversions and will provide an EML/EPC light.
-All outputs are configurable between 5/12v Square Wave with definable max limits based on x RPM
+All outputs are configurable 12v Square Wave with definable max limits based on x RPM
 V1.00 - Optional 'traditional' coil output
 V1.01 - Optional EML/EPC output.  EPC can be used as 'shift light', RPM configarble
 V1.02 - Original RPM input is ~500Hz, speed is ~300Hz for VW Clusters.  Adjustable in code
@@ -36,8 +36,8 @@ hw_timer_t* timer1 = NULL;
 
 bool rpmTrigger = true;
 bool speedTrigger = true;
-int frequencyRPM = 20;    // 20 to 20000
-int frequencySpeed = 20;  // 20 to 20000
+int frequencyRPM = 1;    // 20 to 20000
+int frequencySpeed = 1;  // 20 to 20000
 
 //if (1) {  // This contains all the timers/Hz/Freq. stuff.  Literally in a //(1) to let Arduino IDE code-wrap all this...
 // timer for RPM
@@ -52,7 +52,7 @@ void IRAM_ATTR onTimer0() {
 // timer for Speed
 void IRAM_ATTR onTimer1() {
   speedTrigger = !speedTrigger;
-  digitalWrite(pinSpeed, speedTrigger);
+  digitalWrite(pinEML, speedTrigger);
 }
 
 // setup timers
@@ -60,7 +60,7 @@ void setupTimer() {
   timer0 = timerBegin(0, 80, true);  //div 80
   timerAttachInterrupt(timer0, &onTimer0, true);
 
-  timer1 = timerBegin(1, 80, true);  //div 80
+  timer1 = timerBegin(1, 40, true);  //div 80
   timerAttachInterrupt(timer1, &onTimer1, true);
 }
 
@@ -150,7 +150,7 @@ void loop() {
   }
 
   if (selfTest) {
-    diagTest();
+    needleSweep(); //diagTest();
   } else {
     // calculate final frequency:
     finalFrequencySpeed = map(vehicleSpeed, 0, clusterSpeedLimit, 0, maxSpeed);

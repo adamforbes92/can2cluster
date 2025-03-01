@@ -12,12 +12,12 @@
 
 // setup - tweaky things
 #define needleSweepDelay 5  // delay between next freq.  Increase/decrease to change the sweep time ** CAN CHANGE THIS **
-#define useEPCShiftLight 1  // use the EPC output as a shift light ** CAN CHANGE THIS **
+#define useEPCShiftLight 0  // use the EPC output as a shift light ** CAN CHANGE THIS **
 #define useEMLShiftLight 1  // use the EML output as a shift light ** CAN CHANGE THIS **
 #define shiftLightRate 60   // flash EPC at xx ms.  Decreasing may lead to a 'constant' light because of the human eye... ** CAN CHANGE THIS **
 
 // setup - Hz adjustment
-#define maxRRM 480    // max RPM in Hz for the cluster (for needle sweep) ** CAN CHANGE THIS **
+#define maxRRM 470    // max RPM in Hz for the cluster (for needle sweep) ** CAN CHANGE THIS **
 #define maxSpeed 500  // max Speed in Hz for the cluster (for needle sweep).  MK3 default is 500.  MK1/MK2 (has cable), default is xxx ** CAN CHANGE THIS **
 
 // setup - RPM & speed limits
@@ -49,7 +49,7 @@
 #define pinSpare2 32      // spare 2
 
 // Baud Rates
-#define baudSerial 115200  // baud rate for debug
+#define baudSerial 9600  // baud rate for debug
 #define baudGPS 9600       // baud rate for the GPS device
 
 // DSG variables
@@ -69,7 +69,8 @@ extern int vehicleSpeed = 1;         // current Speed.  If no CAN, this will cat
 extern int calcSpeed = 0;            // temp var for calculating speed
 extern int finalFrequencyRPM = 0;    // final converted RPM into Hz
 extern int finalFrequencySpeed = 0;  // final converted Speed into Hz
-extern int i = 0;
+extern int tempSpeed = 0;
+extern int tempRPM = 0;
 
 extern double ecuSpeed = 0;  // ECU speed (from analog speed sensor)
 extern double dsgSpeed = 0;  // DSG speed (from RPM & Gear), ratios in '_dsg.ino'

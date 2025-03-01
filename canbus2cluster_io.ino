@@ -33,7 +33,7 @@ void basicInit() {
 
 void setupPins() {
   // define pin modes for outputs
-  pinMode(onboardLED, OUTPUT); // use the built-in LED for displaying errors!
+  pinMode(onboardLED, OUTPUT);  // use the built-in LED for displaying errors!
 
   pinMode(pinRPM, OUTPUT);
   pinMode(pinSpeed, OUTPUT);
@@ -75,9 +75,9 @@ void needleSweep() {
     // scaling?...
     frequencyRPM += stepRPM;
     frequencySpeed += stepSpeed;
-    delay(needleSweepDelay);  // increase or decrease the needle sweep speed in _defs
+    delay(needleSweepDelay*10);  // increase or decrease the needle sweep speed in _defs
   }
-  delay(needleSweepDelay * 100);
+  delay(needleSweepDelay * 10);
 
   frequencyRPM = 1;
   frequencySpeed = 1;
@@ -116,18 +116,23 @@ void blinkLED(int duration, int flashes, bool boolEPC, bool boolEML, bool boolRP
 }
 
 void diagTest() {
-  //i = 0;
-  i = i + 1000;
-  if (i > clusterRPMLimit) {
-    i = 0;
+  tempRPM = tempRPM + 1000;
+  if (tempRPM > clusterRPMLimit) {
+    tempRPM = 0;
+  }
+  tempSpeed = tempSpeed + 30;
+  if (tempSpeed > clusterSpeedLimit) {
+    tempSpeed = 0;
   }
   vehicleReverse = !vehicleReverse;
 
-  finalFrequencySpeed = map(i, 0, clusterSpeedLimit, 0, maxSpeed);
-  finalFrequencyRPM = map(i, 0, clusterRPMLimit, 0, maxRRM);
+  finalFrequencySpeed = map(tempSpeed, 0, clusterSpeedLimit, 0, maxSpeed);
+  finalFrequencyRPM = map(tempRPM, 0, clusterRPMLimit, 0, maxRRM);
 #if stateDebug
   Serial.print(F("Freq RPM: "));
   Serial.println(finalFrequencyRPM);
+  Serial.print(F("Freq Speed: "));
+  Serial.println(finalFrequencySpeed);
 #endif
 
   // change the frequency of both RPM & Speed as per CAN information
@@ -136,5 +141,5 @@ void diagTest() {
 
   digitalWrite(pinReverse, vehicleReverse);
 
-  blinkLED(100, 1, 1, 1, 1, 1);
+  blinkLED(500, 1, 1, 1, 1, 1);
 }
