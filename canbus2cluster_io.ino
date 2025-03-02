@@ -72,10 +72,15 @@ void needleSweep() {
     setFrequencyRPM(frequencyRPM);
     setFrequencySpeed(frequencySpeed);
 
+#if stateDebug
+    Serial.println(frequencyRPM);
+    Serial.println(frequencySpeed);
+#endif
+
     // scaling?...
     frequencyRPM += stepRPM;
     frequencySpeed += stepSpeed;
-    delay(needleSweepDelay*10);  // increase or decrease the needle sweep speed in _defs
+    delay(needleSweepDelay * 10);  // increase or decrease the needle sweep speed in _defs
   }
   delay(needleSweepDelay * 10);
 

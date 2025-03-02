@@ -37,8 +37,8 @@ hw_timer_t* timer1 = NULL;
 
 bool rpmTrigger = true;
 bool speedTrigger = true;
-int frequencyRPM = 20;    // 20 to 20000
-int frequencySpeed = 20;  // 20 to 20000
+int frequencyRPM = 1;    // 20 to 20000
+int frequencySpeed = 1;  // 20 to 20000
 
 //if (1) {  // This contains all the timers/Hz/Freq. stuff.  Literally in a //(1) to let Arduino IDE code-wrap all this...
 // timer for RPM
@@ -91,7 +91,6 @@ void setup() {
 
 void loop() {
   // get the easy stuff out the way first
-
   // has error - todo: set to flash, etc...
   if (hasError) {
     digitalWrite(onboardLED, HIGH);  // light internal LED
@@ -161,8 +160,8 @@ void loop() {
 
     // change the frequency of both RPM & Speed as per CAN information
     setFrequencySpeed(finalFrequencySpeed + 1);  // minimum speed may command 0 and setFreq. will cause crash, so +1 to error 'catch'
-    if ((millis() - lastMillis) > rpmPause) {    // check to see if x ms (linPause) has elapsed - slow down the frames!
-      lastMillis = millis();
+    if ((millis() - lastMillis2) > rpmPause) {    // check to see if x ms (linPause) has elapsed - slow down the frames!
+      lastMillis2 = millis();
       setFrequencyRPM(finalFrequencyRPM + 1);  // minimum speed may command 0 and setFreq. will cause crash, so +1 to error 'catch'
     }
   }

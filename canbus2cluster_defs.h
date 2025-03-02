@@ -84,6 +84,7 @@ extern uint8_t lever = 0;  // shifter position
 extern uint8_t gear_raw = 0;
 extern uint8_t lever_raw = 0;
 uint32_t lastMillis = 0;                                                     // Counter for sending frames x ms
+uint32_t lastMillis2 = 0;                                                     // Counter for sending frames x ms
 
 // ECU variables
 extern bool vehicleEML = false;  // current EML light status
