@@ -8,6 +8,7 @@ V1.03 - Optional GPS module for calculating speed if ECU is blind.  Not as accur
 V1.03 - Built-in LED used for error displaying.  For example - no satellites will illuminate LED
 V1.04 - Added DSG support - gets current gear & rpm and calculates theory speed.  Ratios in '_dsg.ino'
 V1.05 - Check for hanging
+V1.06 - Slowed dowm RPM to minimise speed change during shift
 
 Forbes-Automotive, 2025
 */
@@ -140,6 +141,12 @@ void loop() {
     case 2:  // get speed from gps
       parseGPS();
       break;
+
+    case 3:
+      if (absSpeed > 0) {
+        vehicleSpeed = int(absSpeed);
+      }
+      break;
   }
 
   // check to see what the current RPM is, if it's over the limit, trigger the EPC or EML light as a warning!
@@ -150,7 +157,7 @@ void loop() {
   }
 
   if (selfTest) {
-    needleSweep(); //diagTest();
+    needleSweep();  //diagTest();
   } else {
     // calculate final frequency:
     finalFrequencySpeed = map(vehicleSpeed, 0, clusterSpeedLimit, 0, maxSpeed);
@@ -158,6 +165,9 @@ void loop() {
 
     // change the frequency of both RPM & Speed as per CAN information
     setFrequencySpeed(finalFrequencySpeed + 1);  // minimum speed may command 0 and setFreq. will cause crash, so +1 to error 'catch'
-    setFrequencyRPM(finalFrequencyRPM + 1);      // minimum speed may command 0 and setFreq. will cause crash, so +1 to error 'catch'
+    if ((millis() - lastMillis) > rpmPause) {   // check to see if x ms (linPause) has elapsed - slow down the frames!
+      lastMillis = millis();
+      setFrequencyRPM(finalFrequencyRPM + 1);  // minimum speed may command 0 and setFreq. will cause crash, so +1 to error 'catch'
+    }
   }
 }

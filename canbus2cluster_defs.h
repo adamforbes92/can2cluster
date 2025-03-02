@@ -7,7 +7,7 @@
 // setup - main inputs
 #define hasCoilOutput 1   // is MK2 / use MK2 Output.  Disable if not being used to save power - no point in triggering the relay for something to do... ** CAN CHANGE THIS **
 #define hasNeedleSweep 1  // do needle sweep on power up? ** CAN CHANGE THIS **
-#define speedType 1       // 0 = ECU, 1 = DSG, 2 = GPS
+#define speedType 1       // 0 = ECU, 1 = DSG, 2 = GPS, 3 = ABS
 #define speedUnits 0      // 0 = kph, 1 = mph
 
 // setup - tweaky things
@@ -62,7 +62,8 @@
 #define LEVER_TIPTRONIC_ON 0xE    // tiptronic
 #define LEVER_TIPTRONIC_UP 0xA    // tiptronic up
 #define LEVER_TIPTRONIC_DOWN 0xB  // tiptronic down
-#define gearPause 100                                             // Send packets every x ms ** CAN CHANGE THIS **
+#define gearPause 0                                             // Send packets every x ms ** CAN CHANGE THIS **
+#define rpmPause 100
 
 extern uint16_t vehicleRPM = 1;      // current RPM.  If no CAN, this will catch dividing by zero by the map function
 extern int vehicleSpeed = 1;         // current Speed.  If no CAN, this will catch dividing by zero by the map function
@@ -75,6 +76,7 @@ extern int tempRPM = 0;
 extern double ecuSpeed = 0;  // ECU speed (from analog speed sensor)
 extern double dsgSpeed = 0;  // DSG speed (from RPM & Gear), ratios in '_dsg.ino'
 extern double gpsSpeed = 0;  // GPS speed (from '_gps.ino')
+extern uint8_t absSpeed = 0;  // GPS speed (from '_gps.ino')
 
 // DSG variables
 extern uint8_t gear = 0;   // current gear from DSG

@@ -31,8 +31,8 @@ double dq250_speed(uint16_t rpm_in, uint8_t gear) {
   double tireCircumference = PI * 0.6;
   double rpm = (double)rpm_in * 1.0;
   double speed_mps = (rpm * tireCircumference) / (dq250_gear_ratio(gear) * dq250_final(gear) * 60);
-  double vehicleSpeed = speed_mps * 3.6;
-  return vehicleSpeed > 10 ? vehicleSpeed : 0;  // ignore below 10km/h
+  double vehicleSpeedTemp = speed_mps * 3.6;
+  return vehicleSpeedTemp > 10 ? vehicleSpeedTemp : 0;  // ignore below 10km/h
 }
 
 void parseDSG() {
