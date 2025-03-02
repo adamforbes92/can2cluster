@@ -75,9 +75,9 @@ void needleSweep() {
     // scaling?...
     frequencyRPM += stepRPM;
     frequencySpeed += stepSpeed;
-    delay(needleSweepDelay * 10);  // increase or decrease the needle sweep speed in _defs
+    delay(needleSweepDelay);  // increase or decrease the needle sweep speed in _defs
   }
-  delay(needleSweepDelay * 10);
+  delay(needleSweepDelay * 100);
 
   frequencyRPM = 1;
   frequencySpeed = 1;

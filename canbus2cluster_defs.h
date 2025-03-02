@@ -62,8 +62,8 @@
 #define LEVER_TIPTRONIC_ON 0xE    // tiptronic
 #define LEVER_TIPTRONIC_UP 0xA    // tiptronic up
 #define LEVER_TIPTRONIC_DOWN 0xB  // tiptronic down
-#define gearPause 50                                             // Send packets every x ms ** CAN CHANGE THIS **
-#define rpmPause 150
+#define gearPause 20                                             // Send packets every x ms ** CAN CHANGE THIS **
+#define rpmPause 50
 
 extern uint16_t vehicleRPM = 1;      // current RPM.  If no CAN, this will catch dividing by zero by the map function
 extern int vehicleSpeed = 1;         // current Speed.  If no CAN, this will catch dividing by zero by the map function

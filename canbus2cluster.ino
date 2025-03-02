@@ -37,8 +37,8 @@ hw_timer_t* timer1 = NULL;
 
 bool rpmTrigger = true;
 bool speedTrigger = true;
-int frequencyRPM = 1;    // 20 to 20000
-int frequencySpeed = 1;  // 20 to 20000
+int frequencyRPM = 20;    // 20 to 20000
+int frequencySpeed = 20;  // 20 to 20000
 
 //if (1) {  // This contains all the timers/Hz/Freq. stuff.  Literally in a //(1) to let Arduino IDE code-wrap all this...
 // timer for RPM
@@ -61,7 +61,7 @@ void setupTimer() {
   timer0 = timerBegin(0, 80, true);  //div 80
   timerAttachInterrupt(timer0, &onTimer0, true);
 
-  timer1 = timerBegin(1, 40, true);  //div 80
+  timer1 = timerBegin(1, 80, true);  //div 80
   timerAttachInterrupt(timer1, &onTimer1, true);
 }
 
