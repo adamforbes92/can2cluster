@@ -13,7 +13,7 @@
 // setup - tweaky things
 #define needleSweepDelay 5  // delay between next freq.  Increase/decrease to change the sweep time ** CAN CHANGE THIS **
 #define useEPCShiftLight 0  // use the EPC output as a shift light ** CAN CHANGE THIS **
-#define useEMLShiftLight 1  // use the EML output as a shift light ** CAN CHANGE THIS **
+#define useEMLShiftLight 0  // use the EML output as a shift light ** CAN CHANGE THIS **
 #define shiftLightRate 60   // flash EPC at xx ms.  Decreasing may lead to a 'constant' light because of the human eye... ** CAN CHANGE THIS **
 
 // setup - Hz adjustment
@@ -62,8 +62,8 @@
 #define LEVER_TIPTRONIC_ON 0xE    // tiptronic
 #define LEVER_TIPTRONIC_UP 0xA    // tiptronic up
 #define LEVER_TIPTRONIC_DOWN 0xB  // tiptronic down
-#define gearPause 0                                             // Send packets every x ms ** CAN CHANGE THIS **
-#define rpmPause 100
+#define gearPause 50                                             // Send packets every x ms ** CAN CHANGE THIS **
+#define rpmPause 150
 
 extern uint16_t vehicleRPM = 1;      // current RPM.  If no CAN, this will catch dividing by zero by the map function
 extern int vehicleSpeed = 1;         // current Speed.  If no CAN, this will catch dividing by zero by the map function
