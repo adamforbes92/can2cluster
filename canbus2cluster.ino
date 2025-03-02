@@ -53,7 +53,7 @@ void IRAM_ATTR onTimer0() {
 // timer for Speed
 void IRAM_ATTR onTimer1() {
   speedTrigger = !speedTrigger;
-  digitalWrite(pinEML, speedTrigger);
+  digitalWrite(pinSpeed, speedTrigger);
 }
 
 // setup timers
