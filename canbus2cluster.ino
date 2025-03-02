@@ -37,8 +37,8 @@ hw_timer_t* timer1 = NULL;
 
 bool rpmTrigger = true;
 bool speedTrigger = true;
-int frequencyRPM = 1;    // 20 to 20000
-int frequencySpeed = 1;  // 20 to 20000
+int frequencyRPM = 20;    // 20 to 20000
+int frequencySpeed = 20;  // 20 to 20000
 
 //if (1) {  // This contains all the timers/Hz/Freq. stuff.  Literally in a //(1) to let Arduino IDE code-wrap all this...
 // timer for RPM
@@ -133,9 +133,7 @@ void loop() {
         lastMillis = millis();
         parseDSG();
       }
-      if (dsgSpeed > 0) {
-        vehicleSpeed = int(dsgSpeed);
-      }
+      vehicleSpeed = int(dsgSpeed);
       break;
 
     case 2:  // get speed from gps
@@ -143,9 +141,7 @@ void loop() {
       break;
 
     case 3:
-      if (absSpeed > 0) {
-        vehicleSpeed = int(absSpeed);
-      }
+      vehicleSpeed = int(absSpeed);
       break;
   }
 
@@ -165,7 +161,7 @@ void loop() {
 
     // change the frequency of both RPM & Speed as per CAN information
     setFrequencySpeed(finalFrequencySpeed + 1);  // minimum speed may command 0 and setFreq. will cause crash, so +1 to error 'catch'
-    if ((millis() - lastMillis) > rpmPause) {   // check to see if x ms (linPause) has elapsed - slow down the frames!
+    if ((millis() - lastMillis) > rpmPause) {    // check to see if x ms (linPause) has elapsed - slow down the frames!
       lastMillis = millis();
       setFrequencyRPM(finalFrequencyRPM + 1);  // minimum speed may command 0 and setFreq. will cause crash, so +1 to error 'catch'
     }
