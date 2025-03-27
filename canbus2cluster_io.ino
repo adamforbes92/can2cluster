@@ -54,21 +54,26 @@ void setupPins() {
 
 void setupButtons() {
   //setup buttons / inputs
-  //btnPadUp.attachSingleClick(padUpFunc);      // call intSingle on a single click (single wipe)
-  //btnPadDown.attachSingleClick(padDownFunc);  // call intSingle on a single click (single wipe)
+  btnPadUp.attachSingleClick(padUpFunc);      // call intSingle on a single click (single wipe)
+  btnPadDown.attachSingleClick(padDownFunc);  // call intSingle on a single click (single wipe)
 
   //btnSpare1.attachSingleClick(spare1Func);  // call intSingle on a single click (single wipe)
   //btnSpare2.attachSingleClick(spare2Func);  // call intSingle on a single click (single wipe)
 }
 
 void needleSweep() {
-  frequencyRPM = 1;
-  frequencySpeed = 1;
+  frequencyRPM = 0;
+  frequencySpeed = 0;
+  setFrequencyRPM(frequencyRPM);
+  setFrequencySpeed(frequencySpeed);
+
+  delay(needleSweepDelay);
+
 #if stateDebug
   Serial.println(F("Starting needle sweep..."));
 #endif
 
-  while (frequencyRPM < maxRRM) {
+  while ((frequencyRPM != maxRPM) && (frequencySpeed != maxSpeed)) {
     setFrequencyRPM(frequencyRPM);
     setFrequencySpeed(frequencySpeed);
 
@@ -77,10 +82,14 @@ void needleSweep() {
     frequencySpeed += stepSpeed;
     delay(needleSweepDelay);  // increase or decrease the needle sweep speed in _defs
   }
-  delay(needleSweepDelay * 100);
 
-  frequencyRPM = 1;
-  frequencySpeed = 1;
+  frequencyRPM = 0;
+  frequencySpeed = 0;
+  setFrequencyRPM(frequencyRPM);
+  setFrequencySpeed(frequencySpeed);
+
+  delay(needleSweepDelay * 20);
+
 #if stateDebug
   Serial.println(F("Finished needle sweep!"));
 #endif
@@ -116,30 +125,20 @@ void blinkLED(int duration, int flashes, bool boolEPC, bool boolEML, bool boolRP
 }
 
 void diagTest() {
-  tempRPM = tempRPM + 1000;
-  if (tempRPM > clusterRPMLimit) {
-    tempRPM = 0;
+  vehicleRPM += 1000;
+  vehicleSpeed += 10;
+
+  if (vehicleRPM > clusterRPMLimit) {
+    vehicleRPM = 0;
+    frequencyRPM = 0;
   }
-  tempSpeed = tempSpeed + 30;
-  if (tempSpeed > clusterSpeedLimit) {
-    tempSpeed = 0;
+  if (vehicleSpeed > clusterSpeedLimit) {
+    vehicleSpeed = 0;
+    frequencySpeed = 0;
   }
+
   vehicleReverse = !vehicleReverse;
+  //digitalWrite(pinReverse, vehicleReverse);
 
-  finalFrequencySpeed = map(tempSpeed, 0, clusterSpeedLimit, 0, maxSpeed);
-  finalFrequencyRPM = map(tempRPM, 0, clusterRPMLimit, 0, maxRRM);
-#if stateDebug
-  Serial.print(F("Freq RPM: "));
-  Serial.println(finalFrequencyRPM);
-  Serial.print(F("Freq Speed: "));
-  Serial.println(finalFrequencySpeed);
-#endif
-
-  // change the frequency of both RPM & Speed as per CAN information
-  setFrequencySpeed(finalFrequencySpeed + 1);
-  setFrequencyRPM(finalFrequencyRPM + 1);
-
-  digitalWrite(pinReverse, vehicleReverse);
-
-  blinkLED(500, 1, 1, 1, 1, 1);
+  blinkLED(1000, 1, 1, 1, 0, 0);
 }

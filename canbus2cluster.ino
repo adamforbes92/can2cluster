@@ -9,6 +9,7 @@ V1.03 - Built-in LED used for error displaying.  For example - no satellites wil
 V1.04 - Added DSG support - gets current gear & rpm and calculates theory speed.  Ratios in '_dsg.ino'
 V1.05 - Check for hanging
 V1.06 - Slowed dowm RPM to minimise speed change during shift
+V1.07 - calibrated PWM motor 
 
 Forbes-Automotive, 2025
 */
@@ -37,16 +38,17 @@ hw_timer_t* timer1 = NULL;
 
 bool rpmTrigger = true;
 bool speedTrigger = true;
-int frequencyRPM = 20;    // 20 to 20000
-int frequencySpeed = 20;  // 20 to 20000
+long frequencyRPM = 20;    // 20 to 20000
+long frequencySpeed = 20;  // 20 to 20000
 
 //if (1) {  // This contains all the timers/Hz/Freq. stuff.  Literally in a //(1) to let Arduino IDE code-wrap all this...
 // timer for RPM
 void IRAM_ATTR onTimer0() {
   rpmTrigger = !rpmTrigger;
-  digitalWrite(pinRPM, rpmTrigger);
   if (hasCoilOutput) {
     digitalWrite(pinCoil, rpmTrigger);
+  } else {
+    digitalWrite(pinRPM, rpmTrigger);
   }
 }
 
@@ -58,25 +60,33 @@ void IRAM_ATTR onTimer1() {
 
 // setup timers
 void setupTimer() {
-  timer0 = timerBegin(0, 80, true);  //div 80
+  timer0 = timerBegin(0, 40, true);  //div 80
   timerAttachInterrupt(timer0, &onTimer0, true);
 
-  timer1 = timerBegin(1, 80, true);  //div 80
+  timer1 = timerBegin(1, 40, true);  //div 80
   timerAttachInterrupt(timer1, &onTimer1, true);
 }
 
 // adjust output frequency
 void setFrequencyRPM(long frequencyHz) {
-  timerAlarmDisable(timer0);
-  timerAlarmWrite(timer0, 1000000l / frequencyHz, true);
-  timerAlarmEnable(timer0);
+  if (frequencyHz != 0) {
+    timerAlarmDisable(timer0);
+    timerAlarmWrite(timer0, 1000000l / frequencyHz, true);
+    timerAlarmEnable(timer0);
+  } else {
+    timerAlarmDisable(timer0);
+  }
 }
 
 // adjust output frequency
 void setFrequencySpeed(long frequencyHz) {
-  timerAlarmDisable(timer1);
-  timerAlarmWrite(timer1, 1000000l / frequencyHz, true);
-  timerAlarmEnable(timer1);
+  if (frequencyHz != 0) {
+    timerAlarmDisable(timer1);
+    timerAlarmWrite(timer1, 1000000l / frequencyHz, true);
+    timerAlarmEnable(timer1);
+  } else {
+    timerAlarmDisable(timer1);
+  }
 }
 //}
 
@@ -92,19 +102,28 @@ void setup() {
 void loop() {
   // get the easy stuff out the way first
   // has error - todo: set to flash, etc...
+  if (selfTest) {
+    //needleSweep();
+    diagTest();
+  }
+
   if (hasError) {
     digitalWrite(onboardLED, HIGH);  // light internal LED
   } else {
     digitalWrite(onboardLED, LOW);
   }
 
-  //btnPadUp.tick();    // paddle up
-  //btnPadDown.tick();  // paddle down
+  // set EML & EPC
+  digitalWrite(pinEML, vehicleEML);  // Check for EML/EPC light and trigger.  Will be caught by CAN messages
+  digitalWrite(pinEPC, vehicleEPC);  // Check for EML/EPC light and trigger.  Will be caught by CAN messages
+
+  btnPadUp.tick();    // paddle up
+  btnPadDown.tick();  // paddle down
   //btnSpare1.tick();   // input 'spare'
   //btnSpare2.tick();   // input 2 'spare'
 
   // send CAN data for paddle up/down etc
-  /*if (boolPadUp) {
+  if (boolPadUp) {
     Serial.println(F("Paddle up"));
     sendPaddleUpFrame();
     boolPadUp = false;
@@ -114,17 +133,13 @@ void loop() {
     sendPaddleDownFrame();
     boolPadDown = false;
   }
-  */
-  // todo!
-
-  // set EML & EPC
-  digitalWrite(pinEML, vehicleEML);  // Check for EML/EPC light and trigger.  Will be caught by CAN messages
-  digitalWrite(pinEPC, vehicleEPC);  // Check for EML/EPC light and trigger.  Will be caught by CAN messages
-
+  
   // get speed type (ECU, DSG or GPS)
   switch (speedType) {
     case 0:  // get speed from ecu
-      vehicleSpeed = (byte)(calcSpeed >= 255 ? 0 : calcSpeed);
+      if (calcSpeed > 0) {
+        vehicleSpeed = (byte)(calcSpeed >= 255 ? 0 : calcSpeed);
+      }
       break;
 
     case 1:                                       // get speed from dsg
@@ -137,6 +152,7 @@ void loop() {
 
     case 2:  // get speed from gps
       parseGPS();
+      vehicleSpeed = int(gpsSpeed);
       break;
 
     case 3:
@@ -151,18 +167,21 @@ void loop() {
     }
   }
 
-  if (selfTest) {
-    needleSweep();  //diagTest();
-  } else {
-    // calculate final frequency:
-    finalFrequencySpeed = map(vehicleSpeed, 0, clusterSpeedLimit, 0, maxSpeed);
-    finalFrequencyRPM = map(vehicleRPM, 0, clusterRPMLimit, 0, maxRRM);
+  // calculate final frequency:
+  frequencySpeed = map(vehicleSpeed, 0, clusterSpeedLimit, 0, maxSpeed);
+  frequencyRPM = map(vehicleRPM, 0, clusterRPMLimit, 0, maxRPM);
 
-    // change the frequency of both RPM & Speed as per CAN information
-    setFrequencySpeed(finalFrequencySpeed + 1);  // minimum speed may command 0 and setFreq. will cause crash, so +1 to error 'catch'
-    if ((millis() - lastMillis2) > rpmPause) {    // check to see if x ms (linPause) has elapsed - slow down the frames!
-      lastMillis2 = millis();
-      setFrequencyRPM(finalFrequencyRPM + 1);  // minimum speed may command 0 and setFreq. will cause crash, so +1 to error 'catch'
-    }
+  // change the frequency of both RPM & Speed as per CAN information
+  if ((millis() - lastMillis2) > rpmPause) {  // check to see if x ms (linPause) has elapsed - slow down the frames!
+    lastMillis2 = millis();
+    setFrequencyRPM(frequencyRPM);      // minimum speed may command 0 and setFreq. will cause crash, so +1 to error 'catch'
+    setFrequencySpeed(frequencySpeed);  // minimum speed may command 0 and setFreq. will cause crash, so +1 to error 'catch'  }
+
+#if stateDebug
+    Serial.print(F("Freq RPM: "));
+    Serial.println(vehicleRPM);
+    Serial.print(F("Freq Speed: "));
+    Serial.println(frequencySpeed);
+#endif
   }
 }
