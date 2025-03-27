@@ -5,8 +5,8 @@ void padDownFunc() {
   boolPadDown = true;
 }
 void spare1Func() {
-  boolSpare1 = false;
+  boolSpare1 = true;
 }
 void spare2Func() {
-  boolSpare2 = false;
+  boolSpare2 = true;
 }

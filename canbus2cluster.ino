@@ -27,10 +27,10 @@ TinyGPSPlus gps;
 
 // for inputs / paddles
 #include <ButtonLib.h>  //include the declaration for this class
-buttonClass btnPadUp(pinPaddleUp, true);
-buttonClass btnPadDown(pinPaddleDown, true);
-buttonClass btnSpare1(pinSpare1, true);
-buttonClass btnSpare2(pinSpare2, true);
+buttonClass btnPadUp(pinPaddleUp, 0, false);
+buttonClass btnPadDown(pinPaddleDown, 0, false);
+buttonClass btnSpare1(pinSpare1, 0, false);
+buttonClass btnSpare2(pinSpare2, 0, false);
 
 // define two hardware timers for RPM & Speed outputs
 hw_timer_t* timer0 = NULL;
@@ -119,8 +119,8 @@ void loop() {
 
   btnPadUp.tick();    // paddle up
   btnPadDown.tick();  // paddle down
-  //btnSpare1.tick();   // input 'spare'
-  //btnSpare2.tick();   // input 2 'spare'
+  btnSpare1.tick();   // input 'spare'
+  btnSpare2.tick();   // input 2 'spare'
 
   // send CAN data for paddle up/down etc
   if (boolPadUp) {
@@ -129,11 +129,19 @@ void loop() {
     boolPadUp = false;
   }
   if (boolPadDown) {
-    Serial.println(F("Paddle up"));
+    Serial.println(F("Paddle down"));
     sendPaddleDownFrame();
     boolPadDown = false;
   }
-  
+  if (boolSpare1) {
+    Serial.println(F("boolSpare1"));
+    boolSpare1 = false;
+  }
+  if (boolSpare2) {
+    Serial.println(F("boolSpare2"));
+    boolSpare2 = false;
+  }
+
   // get speed type (ECU, DSG or GPS)
   switch (speedType) {
     case 0:  // get speed from ecu
@@ -176,12 +184,5 @@ void loop() {
     lastMillis2 = millis();
     setFrequencyRPM(frequencyRPM);      // minimum speed may command 0 and setFreq. will cause crash, so +1 to error 'catch'
     setFrequencySpeed(frequencySpeed);  // minimum speed may command 0 and setFreq. will cause crash, so +1 to error 'catch'  }
-
-#if stateDebug
-    Serial.print(F("Freq RPM: "));
-    Serial.println(vehicleRPM);
-    Serial.print(F("Freq Speed: "));
-    Serial.println(frequencySpeed);
-#endif
   }
 }
