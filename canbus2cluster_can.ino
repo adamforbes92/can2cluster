@@ -74,6 +74,14 @@ void onBodyRX(const CAN_message_t& frame) {
       lever = (frame.buf[0] & 0b11110000) >> 4;
       break;
 
+    case emeraldECU1_ID:
+      vehicleRPM = ((frame.buf[0] << 8) | frame.buf[1]);  // conversion: 0.25*HEX // this is RPM
+      break;
+
+    case emeraldECU2_ID:
+      vehicleSpeed = ((frame.buf[2] << 8) | frame.buf[3]) * (2.25 / 256);  // conversion: 0.25*HEX // this is RPM
+      break;
+
     default:
       // do nothing...
       break;
@@ -101,9 +109,9 @@ void sendPaddleUpFrame() {
   CAN_message_t paddlesUp;  //0x7C0
   paddlesUp.id = GRA_ID;
   paddlesUp.len = 8;
-  paddlesUp.buf[0] = 0x0E;  // was 0xB7
-  paddlesUp.buf[2] = 0x0C;  // was 0x34
-  paddlesUp.buf[3] = 0x02;  // 
+  paddlesUp.buf[0] = 0x0E;             // was 0xB7
+  paddlesUp.buf[2] = 0x0C;             // was 0x34
+  paddlesUp.buf[3] = 0x02;             //
   bitSet(paddlesUp.buf[3], 1);         // set high (trigger)
   if (!chassisCAN.write(paddlesUp)) {  // write CAN frame from the body to the Haldex
   }

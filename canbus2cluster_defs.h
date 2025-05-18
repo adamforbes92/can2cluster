@@ -121,6 +121,9 @@ extern bool hasError = false;
 
 #define HALDEX_ID 0x2C0
 
+#define emeraldECU1_ID 0x1000
+#define emeraldECU2_ID 0x1001
+
 extern void basicInit(void);
 extern void canInit(void);
 extern void onBodyRX(void);
