@@ -73,7 +73,7 @@ void needleSweep() {
   Serial.println(F("Starting needle sweep..."));
 #endif
 
-  while ((frequencyRPM != maxRPM) && (frequencySpeed != maxSpeed)) {
+  while ((frequencyRPM != maxRPM)) {
     setFrequencyRPM(frequencyRPM);
     setFrequencySpeed(frequencySpeed);
 
@@ -83,12 +83,22 @@ void needleSweep() {
     delay(needleSweepDelay);  // increase or decrease the needle sweep speed in _defs
   }
 
-  frequencyRPM = 0;
-  frequencySpeed = 0;
+  while ((frequencyRPM != 0)) {
+    setFrequencyRPM(frequencyRPM);
+    setFrequencySpeed(frequencySpeed);
+
+    // scaling?...
+    frequencyRPM -= stepRPM;
+    frequencySpeed -= stepSpeed;
+    delay(needleSweepDelay);  // increase or decrease the needle sweep speed in _defs
+  }
+
+  frequencyRPM = 1;
+  frequencySpeed = 5;
   setFrequencyRPM(frequencyRPM);
   setFrequencySpeed(frequencySpeed);
 
-  delay(needleSweepDelay * 20);
+  delay(needleSweepDelay);
 
 #if stateDebug
   Serial.println(F("Finished needle sweep!"));
@@ -125,20 +135,20 @@ void blinkLED(int duration, int flashes, bool boolEPC, bool boolEML, bool boolRP
 }
 
 void diagTest() {
-  vehicleRPM += 1000;
-  vehicleSpeed += 10;
+  vehicleRPM += 500;
+  vehicleSpeed += 5;
 
   if (vehicleRPM > clusterRPMLimit) {
-    vehicleRPM = 0;
-    frequencyRPM = 0;
+    vehicleRPM = 1000;
+    frequencyRPM = 1;
   }
   if (vehicleSpeed > clusterSpeedLimit) {
-    vehicleSpeed = 0;
-    frequencySpeed = 0;
+    vehicleSpeed = 1;
+    frequencySpeed = 1;
   }
 
   vehicleReverse = !vehicleReverse;
   //digitalWrite(pinReverse, vehicleReverse);
 
-  blinkLED(1000, 1, 1, 1, 0, 0);
+  blinkLED(200, 1, 1, 1, 0, 0);
 }

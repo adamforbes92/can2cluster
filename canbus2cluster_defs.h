@@ -2,23 +2,23 @@
 // Debug statements
 #define ChassisCANDebug 0  // if 1, will print CAN 2 (Chassis) messages ** CAN CHANGE THIS **
 #define stateDebug 1       // if 1, will use Serial talkback ** CAN CHANGE THIS **
-#define selfTest 0         // increase RPM/speed slowly, flash lights.  For debug only, disable on release! ** CAN CHANGE THIS **
+#define selfTest 1        // increase RPM/speed slowly, flash lights.  For debug only, disable on release! ** CAN CHANGE THIS **
 
 // setup - main inputs
 #define hasCoilOutput 1   // is MK2 / use MK2 Output.  Disable if not being used to save power - no point in triggering the relay for something to do... ** CAN CHANGE THIS **
 #define hasNeedleSweep 0  // do needle sweep on power up? ** CAN CHANGE THIS **
-#define speedType 0       // 0 = ECU, 1 = DSG, 2 = GPS, 3 = ABS
+#define speedType 0      // 0 = ECU, 1 = DSG, 2 = GPS, 3 = ABS
 #define speedUnits 0      // 0 = kph, 1 = mph
 
 // setup - tweaky things
-#define needleSweepDelay 500  // delay between next freq.  Increase/decrease to change the sweep time ** CAN CHANGE THIS **
+#define needleSweepDelay 15  // delay between next freq.  Increase/decrease to change the sweep time ** CAN CHANGE THIS **
 #define useEPCShiftLight 0  // use the EPC output as a shift light ** CAN CHANGE THIS **
 #define useEMLShiftLight 0  // use the EML output as a shift light ** CAN CHANGE THIS **
 #define shiftLightRate 60   // flash EPC at xx ms.  Decreasing may lead to a 'constant' light because of the human eye... ** CAN CHANGE THIS **
 
 // setup - Hz adjustment
 #define maxRPM 230    // max RPM in Hz for the cluster (for needle sweep) ** CAN CHANGE THIS **
-#define maxSpeed 200  // max Speed in Hz for the cluster (for needle sweep).  MK3 default is 500.  MK1/MK2 (has cable), default is xxx ** CAN CHANGE THIS **
+#define maxSpeed 400  // max Speed in Hz for the cluster (for needle sweep).  MK3 default is 500.  MK1/MK2 (has cable), default is xxx ** CAN CHANGE THIS **
 
 // setup - RPM & speed limits
 #define clusterRPMLimit 7000   // rpm ** CAN CHANGE THIS **

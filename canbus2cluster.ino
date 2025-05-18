@@ -63,7 +63,7 @@ void setupTimer() {
   timer0 = timerBegin(0, 40, true);  //div 80
   timerAttachInterrupt(timer0, &onTimer0, true);
 
-  timer1 = timerBegin(1, 40, true);  //div 80
+  timer1 = timerBegin(1, 80, true);  //div 80
   timerAttachInterrupt(timer1, &onTimer1, true);
 }
 
@@ -182,6 +182,10 @@ void loop() {
   // change the frequency of both RPM & Speed as per CAN information
   if ((millis() - lastMillis2) > rpmPause) {  // check to see if x ms (linPause) has elapsed - slow down the frames!
     lastMillis2 = millis();
+#if stateDebug
+    Serial.println(frequencyRPM);
+    Serial.println(frequencySpeed);
+#endif
     setFrequencyRPM(frequencyRPM);      // minimum speed may command 0 and setFreq. will cause crash, so +1 to error 'catch'
     setFrequencySpeed(frequencySpeed);  // minimum speed may command 0 and setFreq. will cause crash, so +1 to error 'catch'  }
   }
