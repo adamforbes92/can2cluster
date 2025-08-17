@@ -1,24 +1,29 @@
+#include <TinyGPSPlus.h>
+#include <SoftwareSerial.h>
+#include "TickTwo.h"                 // for repeated tasks
+#include <ESP32_CAN.h>
+
 /* Defines */
 // Debug statements
 #define ChassisCANDebug 0  // if 1, will print CAN 2 (Chassis) messages ** CAN CHANGE THIS **
-#define stateDebug 1       // if 1, will use Serial talkback ** CAN CHANGE THIS **
-#define selfTest 1        // increase RPM/speed slowly, flash lights.  For debug only, disable on release! ** CAN CHANGE THIS **
+#define stateDebug 0       // if 1, will use Serial talkback ** CAN CHANGE THIS **
+#define selfTest 0        // increase RPM/speed slowly, flash lights.  For debug only, disable on release! ** CAN CHANGE THIS **
 
 // setup - main inputs
 #define hasCoilOutput 1   // is MK2 / use MK2 Output.  Disable if not being used to save power - no point in triggering the relay for something to do... ** CAN CHANGE THIS **
 #define hasNeedleSweep 0  // do needle sweep on power up? ** CAN CHANGE THIS **
-#define speedType 0      // 0 = ECU, 1 = DSG, 2 = GPS, 3 = ABS
+#define speedType 1      // 0 = ECU, 1 = DSG, 2 = GPS, 3 = ABS
 #define speedUnits 0      // 0 = kph, 1 = mph
 
 // setup - tweaky things
-#define needleSweepDelay 15  // delay between next freq.  Increase/decrease to change the sweep time ** CAN CHANGE THIS **
+#define needleSweepDelay 25  // delay between next freq.  Increase/decrease to change the sweep time ** CAN CHANGE THIS **
 #define useEPCShiftLight 0  // use the EPC output as a shift light ** CAN CHANGE THIS **
 #define useEMLShiftLight 0  // use the EML output as a shift light ** CAN CHANGE THIS **
 #define shiftLightRate 60   // flash EPC at xx ms.  Decreasing may lead to a 'constant' light because of the human eye... ** CAN CHANGE THIS **
 
 // setup - Hz adjustment
-#define maxRPM 230    // max RPM in Hz for the cluster (for needle sweep) ** CAN CHANGE THIS **
-#define maxSpeed 400  // max Speed in Hz for the cluster (for needle sweep).  MK3 default is 500.  MK1/MK2 (has cable), default is xxx ** CAN CHANGE THIS **
+#define maxRPM 230    // max RPM in Hz for the cluster (for needle sweep) ** CAN CHANGE THIS ** 230 for VW
+#define maxSpeed 200  // max Speed in Hz for the cluster (for needle sweep).  MK3 default is 500.  MK1/MK2 (has cable), default is xxx ** CAN CHANGE THIS **
 
 // setup - RPM & speed limits
 #define clusterRPMLimit 7000   // rpm ** CAN CHANGE THIS **
@@ -26,12 +31,12 @@
 #define shiftLimit 6000        // set the RPM limit for the shift light ** CAN CHANGE THIS **
 
 // setup - step changes (for needle sweep)
-#define stepRPM 1
+#define stepRPM 1.1
 #define stepSpeed 1
 
 // setup - pins (output)
-#define pinRX_CAN 16  // pin output for SN65HVD230 (CAN_RX)
-#define pinTX_CAN 17  // pin output for SN65HVD230 (CAN_TX)
+#define pinRX_CAN 17  // pin output for SN65HVD230 (CAN_RX)
+#define pinTX_CAN 16  // pin output for SN65HVD230 (CAN_TX)
 #define pinRX_GPS 14  // pin output for GPS NEO6M (GPS_RX)
 #define pinTX_GPS 13  // pin output for GPS NEO6M (GPS_TX)
 #define pinCoil 18    // pin output for RPM (MK2/High Output Coil Trigger)
@@ -44,7 +49,7 @@
 // setup - pins (inputs)
 #define pinPaddleUp 36    // DSG paddle up
 #define pinPaddleDown 39  // DSG paddle down
-#define pinReverse 26     // pin for relay / reverse
+#define pinReverse 26     // pin for relay / reverse 26
 #define pinSpare1 34      // spare 1
 #define pinSpare2 32      // spare 2
 
@@ -83,6 +88,7 @@ extern uint8_t gear_raw = 0;
 extern uint8_t lever_raw = 0;
 uint32_t lastMillis = 0;                                                     // Counter for sending frames x ms
 uint32_t lastMillis2 = 0;                                                     // Counter for sending frames x ms
+extern uint32_t lastCAN = 0;     // last CAN message
 
 // ECU variables
 extern bool vehicleEML = false;  // current EML light status
@@ -98,6 +104,7 @@ extern bool boolSpare2 = false;   // current EPC light status
 
 // onboard LED for error
 extern bool hasError = false;
+extern bool triggerLED = false;
 
 // define CAN Addresses.  All not req. but here for keepsakes
 #define MOTOR1_ID 0x280
@@ -125,6 +132,7 @@ extern bool hasError = false;
 #define emeraldECU2_ID 0x1001
 
 extern void basicInit(void);
+extern void checkError();
 extern void canInit(void);
 extern void onBodyRX(void);
 extern void needleSweep(void);

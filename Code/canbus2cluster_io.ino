@@ -35,7 +35,6 @@ void setupPins() {
   // define pin modes for outputs
   pinMode(onboardLED, OUTPUT);  // use the built-in LED for displaying errors!
 
-  pinMode(pinRPM, OUTPUT);
   pinMode(pinSpeed, OUTPUT);
   pinMode(pinEML, OUTPUT);
   pinMode(pinEPC, OUTPUT);
@@ -44,12 +43,15 @@ void setupPins() {
 #if hasCoilOutput
   pinMode(pinCoil, OUTPUT);
 #endif
+#if !hasCoilOutput
+  pinMode(pinRPM, OUTPUT);
+#endif
 
   // reset buttons if testLED is used (can be removed if 'testLED' is not used but keeping here for solidness)
-  pinMode(pinPaddleUp, INPUT_PULLUP);
-  pinMode(pinPaddleDown, INPUT_PULLUP);
-  pinMode(pinSpare1, INPUT_PULLUP);
-  pinMode(pinSpare2, INPUT_PULLUP);
+  pinMode(pinPaddleUp, INPUT);
+  pinMode(pinPaddleDown, INPUT);
+  pinMode(pinSpare1, INPUT);
+  pinMode(pinSpare2, INPUT);
 }
 
 void setupButtons() {
@@ -73,28 +75,26 @@ void needleSweep() {
   Serial.println(F("Starting needle sweep..."));
 #endif
 
-  while ((frequencyRPM != maxRPM)) {
-    setFrequencyRPM(frequencyRPM);
-    setFrequencySpeed(frequencySpeed);
+  // ramp up
+  for (int i = 0; i < maxRPM; i++) {
 
-    // scaling?...
-    frequencyRPM += stepRPM;
-    frequencySpeed += stepSpeed;
-    delay(needleSweepDelay);  // increase or decrease the needle sweep speed in _defs
+    setFrequencySpeed(i * stepSpeed);
+    setFrequencyRPM(i * stepRPM);
+    delay(needleSweepDelay);
   }
+  delay(needleSweepDelay);
 
-  while ((frequencyRPM != 0)) {
-    setFrequencyRPM(frequencyRPM);
-    setFrequencySpeed(frequencySpeed);
+  // ramp down
+  for (int i = maxRPM; i > 0; i--) {  // set at >0 to stop the needle 'bouncing' when it returns to zero
 
-    // scaling?...
-    frequencyRPM -= stepRPM;
-    frequencySpeed -= stepSpeed;
-    delay(needleSweepDelay);  // increase or decrease the needle sweep speed in _defs
+    setFrequencySpeed(i * stepSpeed);
+    setFrequencyRPM(i * stepRPM);
+    delay(needleSweepDelay);
   }
+  delay(needleSweepDelay);
 
-  frequencyRPM = 1;
-  frequencySpeed = 5;
+  frequencyRPM = 0;
+  frequencySpeed = 0;
   setFrequencyRPM(frequencyRPM);
   setFrequencySpeed(frequencySpeed);
 
@@ -135,8 +135,8 @@ void blinkLED(int duration, int flashes, bool boolEPC, bool boolEML, bool boolRP
 }
 
 void diagTest() {
-  vehicleRPM += 500;
-  vehicleSpeed += 5;
+  vehicleRPM = +1000;
+  vehicleSpeed = +10;
 
   if (vehicleRPM > clusterRPMLimit) {
     vehicleRPM = 1000;
@@ -148,7 +148,21 @@ void diagTest() {
   }
 
   vehicleReverse = !vehicleReverse;
-  //digitalWrite(pinReverse, vehicleReverse);
+  digitalWrite(pinReverse, vehicleReverse);
 
-  blinkLED(200, 1, 1, 1, 0, 0);
+  blinkLED(1000, 1, 1, 1, 0, 0);
+}
+
+void checkError() {
+  if (hasError) {
+    triggerLED = !triggerLED;
+  } else {
+    triggerLED = false;
+  }
+
+  if (triggerLED) {
+    digitalWrite(onboardLED, HIGH);  // turn internal LED on
+  } else {
+    digitalWrite(onboardLED, LOW);  // turn internal LED off
+  }
 }

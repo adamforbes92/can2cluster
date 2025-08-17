@@ -16,14 +16,14 @@ Forbes-Automotive, 2025
 
 // for CAN
 #include "canbus2cluster_defs.h"
-#include <ESP32_CAN.h>
 ESP32_CAN<RX_SIZE_256, TX_SIZE_16> chassisCAN;
 
 // for GPS
-#include <TinyGPSPlus.h>
-#include <SoftwareSerial.h>
 SoftwareSerial ss(pinRX_GPS, pinTX_GPS);
 TinyGPSPlus gps;
+
+// for tickers
+TickTwo tickError(checkError, 500);  // timer for error checking
 
 // for inputs / paddles
 #include <ButtonLib.h>  //include the declaration for this class
@@ -45,12 +45,14 @@ long frequencySpeed = 20;  // 20 to 20000
 // timer for RPM
 void IRAM_ATTR onTimer0() {
   rpmTrigger = !rpmTrigger;
-  if (hasCoilOutput) {
-    digitalWrite(pinCoil, rpmTrigger);
-  } else {
-    digitalWrite(pinRPM, rpmTrigger);
-  }
+#if hasCoilOutput
+  digitalWrite(pinCoil, rpmTrigger);
+#endif
+#if !hasCoilOutput
+  digitalWrite(pinRPM, rpmTrigger);
+#endif
 }
+
 
 // timer for Speed
 void IRAM_ATTR onTimer1() {
@@ -63,7 +65,7 @@ void setupTimer() {
   timer0 = timerBegin(0, 40, true);  //div 80
   timerAttachInterrupt(timer0, &onTimer0, true);
 
-  timer1 = timerBegin(1, 80, true);  //div 80
+  timer1 = timerBegin(1, 40, true);  //div 80 - 40 results in perfect hz transmission
   timerAttachInterrupt(timer1, &onTimer1, true);
 }
 
@@ -94,6 +96,8 @@ void setup() {
   basicInit();   // basic init for setting up IO / CAN / GPS
   setupTimer();  // setup the timers (with a base frequency)
 
+  tickError.start();
+
   if (hasNeedleSweep) {
     needleSweep();  // carry out needle sweep if defined
   }
@@ -102,25 +106,33 @@ void setup() {
 void loop() {
   // get the easy stuff out the way first
   // has error - todo: set to flash, etc...
+  tickError.update();
+
+  // if last CAN message was >500ms ago, it's in an error state, set flag
+  if ((millis() + 10 - lastCAN) > 500) {
+    hasError = true;
+    //ESPUI.updateLabel(label_hasCAN, "No");
+    //ESPUI.updateLabel(label_RPMCAN, "CAN RPM: 0");
+  } else {
+    hasError = false;
+    //ESPUI.updateLabel(label_hasCAN, "Yes");
+    //char buf[32];
+    //sprintf(buf, "CAN RPM: %d", vehicleRPM);
+    //ESPUI.updateLabel(label_RPMCAN, String(buf));
+  }
+
   if (selfTest) {
     //needleSweep();
     diagTest();
   }
 
-  if (hasError) {
-    digitalWrite(onboardLED, HIGH);  // light internal LED
-  } else {
-    digitalWrite(onboardLED, LOW);
-  }
-
   // set EML & EPC
-  digitalWrite(pinEML, vehicleEML);  // Check for EML/EPC light and trigger.  Will be caught by CAN messages
-  digitalWrite(pinEPC, vehicleEPC);  // Check for EML/EPC light and trigger.  Will be caught by CAN messages
+  digitalWrite(pinEML, vehicleEML);          // Check for EML/EPC light and trigger.  Will be caught by CAN messages
+  digitalWrite(pinEPC, vehicleEPC);          // Check for EML/EPC light and trigger.  Will be caught by CAN messages
+  digitalWrite(pinReverse, vehicleReverse);  // turn relay on...
 
   btnPadUp.tick();    // paddle up
   btnPadDown.tick();  // paddle down
-  btnSpare1.tick();   // input 'spare'
-  btnSpare2.tick();   // input 2 'spare'
 
   // send CAN data for paddle up/down etc
   if (boolPadUp) {
@@ -132,14 +144,6 @@ void loop() {
     Serial.println(F("Paddle down"));
     sendPaddleDownFrame();
     boolPadDown = false;
-  }
-  if (boolSpare1) {
-    Serial.println(F("boolSpare1"));
-    boolSpare1 = false;
-  }
-  if (boolSpare2) {
-    Serial.println(F("boolSpare2"));
-    boolSpare2 = false;
   }
 
   // get speed type (ECU, DSG or GPS)
@@ -178,7 +182,6 @@ void loop() {
   // calculate final frequency:
   frequencySpeed = map(vehicleSpeed, 0, clusterSpeedLimit, 0, maxSpeed);
   frequencyRPM = map(vehicleRPM, 0, clusterRPMLimit, 0, maxRPM);
-
   // change the frequency of both RPM & Speed as per CAN information
   if ((millis() - lastMillis2) > rpmPause) {  // check to see if x ms (linPause) has elapsed - slow down the frames!
     lastMillis2 = millis();

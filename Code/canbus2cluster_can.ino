@@ -1,9 +1,9 @@
 void canInit() {
   chassisCAN.setRX(pinRX_CAN);
   chassisCAN.setTX(pinTX_CAN);
-  chassisCAN.begin();
   chassisCAN.setBaudRate(500000);  // CAN Speed in Hz
   chassisCAN.onReceive(onBodyRX);
+  chassisCAN.begin();
   // set filters up for focusing on only MOT1 / MOT 2?
 }
 
@@ -27,6 +27,7 @@ void onBodyRX(const CAN_message_t& frame) {
       // frame[3] (byte 4) > motor speed high byte
       // frame[4] (byte 3) > khm speed?
       vehicleRPM = ((frame.buf[3] << 8) | frame.buf[2]) * 0.25;  // conversion: 0.25*HEX
+      lastCAN = millis();
       break;
 
     case MOTOR2_ID:
@@ -42,10 +43,8 @@ void onBodyRX(const CAN_message_t& frame) {
     case MOTOR6_ID:
       if (frame.buf[0] == 0x73 || frame.buf[0] == 0x72) {
         vehicleReverse = true;
-        digitalWrite(pinReverse, HIGH);  // turn relay on...
       } else {
         vehicleReverse = false;
-        digitalWrite(pinReverse, LOW);  // turn relay on...
       }
       if (frame.buf[0] == 0x83 || frame.buf[0] == 0x82) {
         vehiclePark = true;  // unused bool, but a good to have...
