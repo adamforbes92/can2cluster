@@ -27,8 +27,8 @@ TickTwo tickError(checkError, 500);  // timer for error checking
 
 // for inputs / paddles
 #include <ButtonLib.h>  //include the declaration for this class
-buttonClass btnPadUp(pinPaddleUp, 0, false);
-buttonClass btnPadDown(pinPaddleDown, 0, false);
+buttonClass btnPadUp(pinPaddleUp, 0, true);
+buttonClass btnPadDown(pinPaddleDown, 0, true);
 buttonClass btnSpare1(pinSpare1, 0, false);
 buttonClass btnSpare2(pinSpare2, 0, false);
 

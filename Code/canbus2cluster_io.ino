@@ -6,15 +6,14 @@ void basicInit() {
   Serial.println(F("Setting up pins..."));
 #endif
 
-  if (speedType == 2) {
-    ss.begin(baudGPS);
+  ss.begin(baudGPS);
 #if stateDebug
-    Serial.println(TinyGPSPlus::libraryVersion());
-    Serial.println(F("Sats HDOP  Latitude   Longitude   Fix  Date       Time     Date Alt    Course Speed Card  Distance Course Card  Chars Sentences Checksum"));
-    Serial.println(F("           (deg)      (deg)       Age                      Age  (m)    --- from GPS ----  ---- to London  ----  RX    RX        Fail"));
-    Serial.println(F("----------------------------------------------------------------------------------------------------------------------------------------"));
+  Serial.println(TinyGPSPlus::libraryVersion());
+  Serial.println(F("Sats HDOP  Latitude   Longitude   Fix  Date       Time     Date Alt    Course Speed Card  Distance Course Card  Chars Sentences Checksum"));
+  Serial.println(F("           (deg)      (deg)       Age                      Age  (m)    --- from GPS ----  ---- to London  ----  RX    RX        Fail"));
+  Serial.println(F("----------------------------------------------------------------------------------------------------------------------------------------"));
 #endif
-  }
+
   setupPins();  // initialise the CAN chip
   setupButtons();
 
@@ -50,17 +49,12 @@ void setupPins() {
   // reset buttons if testLED is used (can be removed if 'testLED' is not used but keeping here for solidness)
   pinMode(pinPaddleUp, INPUT);
   pinMode(pinPaddleDown, INPUT);
-  pinMode(pinSpare1, INPUT);
-  pinMode(pinSpare2, INPUT);
 }
 
 void setupButtons() {
   //setup buttons / inputs
   btnPadUp.attachSingleClick(padUpFunc);      // call intSingle on a single click (single wipe)
   btnPadDown.attachSingleClick(padDownFunc);  // call intSingle on a single click (single wipe)
-
-  btnSpare1.attachSingleClick(spare1Func);  // call intSingle on a single click (single wipe)
-  btnSpare2.attachSingleClick(spare2Func);  // call intSingle on a single click (single wipe)
 }
 
 void needleSweep() {

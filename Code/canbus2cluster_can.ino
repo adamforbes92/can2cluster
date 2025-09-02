@@ -127,3 +127,35 @@ void sendPaddleDownFrame() {
   if (!chassisCAN.write(paddlesDown)) {  // write CAN frame from the body to the Haldex
   }
 }
+
+void broadcastGRA() {
+  CAN_message_t broadcastGRA;  //0x7C0
+  broadcastGRA.id = GRA_ID;
+  broadcastGRA.len = 4;
+  broadcastGRA.buf[0] = GRA_checksum;  //
+  broadcastGRA.buf[1] = 0x00;          //
+  broadcastGRA.buf[2] = 0x00;          //
+  broadcastGRA.buf[3] = 0x00;          //
+  GRA_checksum++;
+  if (GRA_checksum >= 255) {
+    GRA_checksum = 0;
+  }
+
+  //if (!chassisCAN.write(broadcastGRA)) {              // write CAN frame from the body to the Haldex
+  //  Serial.println(F("Chassis CAN Write TX Fail!"));  // if writing is unsuccessful, there is something wrong with the Haldex(!) Possibly flash red LED?
+  //}
+}
+
+void broadcastSpeed() {
+  CAN_message_t broadcastSpeed;  //0x7C0
+  broadcastSpeed.id = speed_ID;
+  broadcastSpeed.len = 4;
+  broadcastSpeed.buf[0] = vehicleSpeed;  //
+  broadcastSpeed.buf[1] = 0x00;          //
+  broadcastSpeed.buf[2] = 0x00;          //
+  broadcastSpeed.buf[3] = 0x00;          //
+
+  if (!chassisCAN.write(broadcastSpeed)) {            // write CAN frame from the body to the Haldex
+    Serial.println(F("Chassis CAN Write TX Fail!"));  // if writing is unsuccessful, there is something wrong with the Haldex(!) Possibly flash red LED?
+  }
+}
