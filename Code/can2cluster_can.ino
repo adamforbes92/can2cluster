@@ -42,9 +42,9 @@ void onBodyRX(const CAN_message_t& frame) {
 
     case MOTOR6_ID:
       if (frame.buf[0] == 0x73 || frame.buf[0] == 0x72) {
-        vehicleReverse = true;
+        //vehicleReverse = true;
       } else {
-        vehicleReverse = false;
+        //vehicleReverse = false;
       }
       if (frame.buf[0] == 0x83 || frame.buf[0] == 0x82) {
         vehiclePark = true;  // unused bool, but a good to have...
@@ -58,11 +58,22 @@ void onBodyRX(const CAN_message_t& frame) {
       break;
 
     case mWaehlhebel_1_ID:
-      gear_raw = ((frame.buf[7] & 0b01110000) >> 4) - 1;
+      gear_raw = ((frame.buf[7] & 0b01110000) >> 4) - 1;  // 0b01110000) >> 4) - 1;
       lever_raw = (frame.buf[7] & 0b00000001);
 
       if (lever_raw) {
         gear = gear_raw;
+        Serial.println(gear);
+
+        switch (gear) {
+          case 3:  // reverse
+            vehicleReverse = true;
+            break;
+          default:
+            vehicleReverse = false;
+            break;
+        }
+
         if (gear == 0xFF) {
           gear = 1;
         }
@@ -95,6 +106,9 @@ void onBodyRX(const CAN_message_t& frame) {
 
   Serial.print("vehicleSpeed: ");
   Serial.println(vehicleSpeed);
+
+  Serial.print("Reverse: ");
+  Serial.println(vehicleReverse);
 
   Serial.print("vehicleEML: ");
   Serial.println(vehicleEML);

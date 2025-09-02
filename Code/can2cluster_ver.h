@@ -1,0 +1,14 @@
+/*
+
+V1.00 - Optional 'traditional' coil output
+V1.01 - Optional EML/EPC output.  EPC can be used as 'shift light', RPM configarble
+V1.02 - Original RPM input is ~500Hz, speed is ~300Hz for VW Clusters.  Adjustable in code
+V1.03 - Optional GPS module for calculating speed if ECU is blind.  Not as accurate but a valid solution...
+V1.03 - Built-in LED used for error displaying.  For example - no satellites will illuminate LED
+V1.04 - Added DSG support - gets current gear & rpm and calculates theory speed.  Ratios in '_dsg.ino'
+V1.05 - Check for hanging
+V1.06 - Slowed dowm RPM to minimise speed change during shift
+V1.07 - calibrated PWM motor 
+V1.08 - added DSG reverse specifics
+
+*/

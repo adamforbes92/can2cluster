@@ -5,14 +5,14 @@
 
 /* Defines */
 // Debug statements
-#define ChassisCANDebug 0  // if 1, will print CAN 2 (Chassis) messages ** CAN CHANGE THIS **
-#define stateDebug 0       // if 1, will use Serial talkback ** CAN CHANGE THIS **
+#define ChassisCANDebug 1  // if 1, will print CAN 2 (Chassis) messages ** CAN CHANGE THIS **
+#define stateDebug 1       // if 1, will use Serial talkback ** CAN CHANGE THIS **
 #define selfTest 0        // increase RPM/speed slowly, flash lights.  For debug only, disable on release! ** CAN CHANGE THIS **
 
 // setup - main inputs
 #define hasCoilOutput 1   // is MK2 / use MK2 Output.  Disable if not being used to save power - no point in triggering the relay for something to do... ** CAN CHANGE THIS **
 #define hasNeedleSweep 0  // do needle sweep on power up? ** CAN CHANGE THIS **
-#define speedType 1      // 0 = ECU, 1 = DSG, 2 = GPS, 3 = ABS
+#define speedType 2      // 0 = ECU, 1 = DSG, 2 = GPS, 3 = ABS
 #define speedUnits 0      // 0 = kph, 1 = mph
 
 // setup - tweaky things
@@ -47,11 +47,11 @@
 #define onboardLED 2  // pin onboard LED
 
 // setup - pins (inputs)
-#define pinPaddleUp 36    // DSG paddle up
-#define pinPaddleDown 39  // DSG paddle down
+#define pinPaddleUp 34    // DSG paddle up
+#define pinPaddleDown 35  // DSG paddle down
 #define pinReverse 26     // pin for relay / reverse 26
-#define pinSpare1 34      // spare 1
-#define pinSpare2 32      // spare 2
+#define pinSpare1 32      // spare 1
+#define pinSpare2 33      // spare 2
 
 // Baud Rates
 #define baudSerial 9600  // baud rate for debug
@@ -68,7 +68,7 @@
 #define LEVER_TIPTRONIC_UP 0xA    // tiptronic up
 #define LEVER_TIPTRONIC_DOWN 0xB  // tiptronic down
 #define gearPause 20                                             // Send packets every x ms ** CAN CHANGE THIS **
-#define rpmPause 50
+#define rpmPause 5
 
 extern uint16_t vehicleRPM = 1;      // current RPM.  If no CAN, this will catch dividing by zero by the map function
 extern uint16_t vehicleSpeed = 1;         // current Speed.  If no CAN, this will catch dividing by zero by the map function

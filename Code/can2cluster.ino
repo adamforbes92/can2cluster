@@ -1,15 +1,7 @@
 /* 
 Basic CAN-BUS converter to Digital Output.  Used for MK2/MK3 'analog' clusters in ME7.x and aftermarket conversions and will provide an EML/EPC light.
 All outputs are configurable 12v Square Wave with definable max limits based on x RPM
-V1.00 - Optional 'traditional' coil output
-V1.01 - Optional EML/EPC output.  EPC can be used as 'shift light', RPM configarble
-V1.02 - Original RPM input is ~500Hz, speed is ~300Hz for VW Clusters.  Adjustable in code
-V1.03 - Optional GPS module for calculating speed if ECU is blind.  Not as accurate but a valid solution...
-V1.03 - Built-in LED used for error displaying.  For example - no satellites will illuminate LED
-V1.04 - Added DSG support - gets current gear & rpm and calculates theory speed.  Ratios in '_dsg.ino'
-V1.05 - Check for hanging
-V1.06 - Slowed dowm RPM to minimise speed change during shift
-V1.07 - calibrated PWM motor 
+
 
 Forbes-Automotive, 2025
 */
@@ -27,8 +19,8 @@ TickTwo tickError(checkError, 500);  // timer for error checking
 
 // for inputs / paddles
 #include <ButtonLib.h>  //include the declaration for this class
-buttonClass btnPadUp(pinPaddleUp, 0, false);
-buttonClass btnPadDown(pinPaddleDown, 0, false);
+buttonClass btnPadUp(pinPaddleUp, 0, true);
+buttonClass btnPadDown(pinPaddleDown, 0, true);
 buttonClass btnSpare1(pinSpare1, 0, false);
 buttonClass btnSpare2(pinSpare2, 0, false);
 
