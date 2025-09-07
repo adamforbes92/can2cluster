@@ -1,3 +1,5 @@
+// thanks to Drugward(!)
+
 double dq250_gear_ratio(uint8_t gear) {
   switch (gear) {
     case 1:

@@ -10,5 +10,7 @@ V1.05 - Check for hanging
 V1.06 - Slowed dowm RPM to minimise speed change during shift
 V1.07 - calibrated PWM motor 
 V1.08 - added DSG reverse specifics
+V1.09 - added WiFi
+V1.10 - tested and added selectors for input type on WiFi rather than switches.  Overall cleanup
 
 */

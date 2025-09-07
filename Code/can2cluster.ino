@@ -1,13 +1,13 @@
 /* 
-Basic CAN-BUS converter to Digital Output.  Used for MK2/MK3 'analog' clusters in ME7.x and aftermarket conversions and will provide an EML/EPC light.
-All outputs are configurable 12v Square Wave with definable max limits based on x RPM
-
+CAN-BUS converter to Digital Output.  Used for MK2/MK3 'analog' clusters in ME7.x and aftermarket conversions and will provide an EML/EPC light.
+All outputs are configurable 12v Square Wave with definable max limits based on x RPM / Speed etc.  All outputs are 200mA max(!).  Reverse is MOSFET and 5A max(!).
+Supports GPS for speed
 
 Forbes-Automotive, 2025
 */
 
 // for CAN
-#include "canbus2cluster_defs.h"
+#include "can2cluster_defs.h"
 ESP32_CAN<RX_SIZE_256, TX_SIZE_16> chassisCAN;
 
 // for GPS
@@ -15,14 +15,16 @@ SoftwareSerial ss(pinRX_GPS, pinTX_GPS);
 TinyGPSPlus gps;
 
 // for tickers
-TickTwo tickError(checkError, 500);  // timer for error checking
+TickTwo tickError(checkError, 500);              // timer for error checking
+TickTwo tickBroadcastSpeed(broadcastSpeed, 20);  // timer for error checking
+TickTwo tickEEP(writeEEP, eepRefresh);
+TickTwo tickWiFi(disconnectWifi, wifiDisable);  // timer for disconnecting wifi after 30s if no connections - saves power
+
+Preferences pref;
 
 // for inputs / paddles
-#include <ButtonLib.h>  //include the declaration for this class
 buttonClass btnPadUp(pinPaddleUp, 0, true);
 buttonClass btnPadDown(pinPaddleDown, 0, true);
-buttonClass btnSpare1(pinSpare1, 0, false);
-buttonClass btnSpare2(pinSpare2, 0, false);
 
 // define two hardware timers for RPM & Speed outputs
 hw_timer_t* timer0 = NULL;
@@ -36,151 +38,159 @@ long frequencySpeed = 20;  // 20 to 20000
 //if (1) {  // This contains all the timers/Hz/Freq. stuff.  Literally in a //(1) to let Arduino IDE code-wrap all this...
 // timer for RPM
 void IRAM_ATTR onTimer0() {
-  rpmTrigger = !rpmTrigger;
-#if hasCoilOutput
-  digitalWrite(pinCoil, rpmTrigger);
-#endif
-#if !hasCoilOutput
-  digitalWrite(pinRPM, rpmTrigger);
-#endif
+  rpmTrigger = !rpmTrigger;  // flip-flop to create 50% DC pulse
+  if (coilType) {
+    digitalWrite(pinCoil, rpmTrigger);  // if 'use coil', trigger the coil
+  } else {
+    digitalWrite(pinCoil, LOW);        // if NOT 'use coil', so turn off the coil (save power)
+    digitalWrite(pinRPM, rpmTrigger);  // if NOT 'use coil', trigger the square wave RPM output
+  }
 }
-
 
 // timer for Speed
 void IRAM_ATTR onTimer1() {
-  speedTrigger = !speedTrigger;
-  digitalWrite(pinSpeed, speedTrigger);
+  speedTrigger = !speedTrigger;          // flip-flop to create 50% DC pulse
+  digitalWrite(pinSpeed, speedTrigger);  // trigger speed output
 }
 
 // setup timers
 void setupTimer() {
-  timer0 = timerBegin(0, 40, true);  //div 80
+  timer0 = timerBegin(0, 40, true);  // used to be div 80
   timerAttachInterrupt(timer0, &onTimer0, true);
 
-  timer1 = timerBegin(1, 40, true);  //div 80 - 40 results in perfect hz transmission
+  timer1 = timerBegin(1, 40, true);  //used to be div 80 - 40 results in perfect hz transmission
   timerAttachInterrupt(timer1, &onTimer1, true);
-}
-
-// adjust output frequency
-void setFrequencyRPM(long frequencyHz) {
-  if (frequencyHz != 0) {
-    timerAlarmDisable(timer0);
-    timerAlarmWrite(timer0, 1000000l / frequencyHz, true);
-    timerAlarmEnable(timer0);
-  } else {
-    timerAlarmDisable(timer0);
-  }
-}
-
-// adjust output frequency
-void setFrequencySpeed(long frequencyHz) {
-  if (frequencyHz != 0) {
-    timerAlarmDisable(timer1);
-    timerAlarmWrite(timer1, 1000000l / frequencyHz, true);
-    timerAlarmEnable(timer1);
-  } else {
-    timerAlarmDisable(timer1);
-  }
 }
 //}
 
 void setup() {
-  basicInit();   // basic init for setting up IO / CAN / GPS
+  basicInit();   // basic init for setting up Serial / IO / CAN / GPS
   setupTimer();  // setup the timers (with a base frequency)
 
-  tickError.start();
+  tickError.start();           // begin the error ticker (for blinking onboard LED)
+  tickBroadcastSpeed.start();  // begin ticker for broadcasting speed to CAN
+  tickEEP.start();             // begin ticker for the EEPROM
+  tickWiFi.start();            // begin ticker for the WiFi (to turn off after 60s)
 
   if (hasNeedleSweep) {
     needleSweep();  // carry out needle sweep if defined
   }
+
+  connectWifi();         // enable / start WiFi
+  WiFi.setSleep(false);  // for the ESP32: turn off sleeping to increase UI responsivness (at the cost of power use)
+  setupUI();             // setup wifi user interface
+  //WiFi.setTxPower(WIFI_POWER_8_5dBm);  // set a lower power mode (some C3 aerials aren't great and leaving it high causes failures)
 }
 
 void loop() {
   // get the easy stuff out the way first
-  // has error - todo: set to flash, etc...
-  tickError.update();
+  tickError.update();           // refresh the Error ticker
+  tickBroadcastSpeed.update();  //refresh the Broadcast Speed (via. CAN) ticker
+  tickEEP.update();             // refresh the EEP ticker
+  tickWiFi.update();            // refresh the WiFi ticker
 
-  // if last CAN message was >500ms ago, it's in an error state, set flag
-  if ((millis() + 10 - lastCAN) > 500) {
-    hasError = true;
-    //ESPUI.updateLabel(label_hasCAN, "No");
-    //ESPUI.updateLabel(label_RPMCAN, "CAN RPM: 0");
-  } else {
-    hasError = false;
-    //ESPUI.updateLabel(label_hasCAN, "Yes");
-    //char buf[32];
-    //sprintf(buf, "CAN RPM: %d", vehicleRPM);
-    //ESPUI.updateLabel(label_RPMCAN, String(buf));
-  }
+  btnPadUp.tick();    // refresh the paddle up ticker
+  btnPadDown.tick();  // refresh the paddle down ticker
+
+  parseGPS(); // in _gps.ino
+
+  updateLabels();  // in _wifi.ino.  Update the WiFi labels to show current data
+
+  // set EML, EPC & Reverse outputs
+  digitalWrite(pinEML, vehicleEML);          // Check for EML light and trigger.  Will be caught by CAN messages (from Motor module)
+  digitalWrite(pinEPC, vehicleEPC);          // Check for EPC light and trigger.  Will be caught by CAN messages (from Motor module)
+  digitalWrite(pinReverse, vehicleReverse);  // Check for Reverse signal (from DSG) and turn MOSFET on.  Will be caught by CAN messages (from DSG module)
 
   if (selfTest) {
-    //needleSweep();
     diagTest();
   }
 
-  // set EML & EPC
-  digitalWrite(pinEML, vehicleEML);          // Check for EML/EPC light and trigger.  Will be caught by CAN messages
-  digitalWrite(pinEPC, vehicleEPC);          // Check for EML/EPC light and trigger.  Will be caught by CAN messages
-  digitalWrite(pinReverse, vehicleReverse);  // turn relay on...
+  // if last CAN message was >500ms ago, it's in an error state, set flag.  The +10ms is to give a buffer / stop false triggers
+  if ((millis() + 10 - lastCAN) > 500) {
+    hasError = true;
+  } else {
+    hasError = false;
+  }
 
-  btnPadUp.tick();    // paddle up
-  btnPadDown.tick();  // paddle down
+  if (tempNeedleSweep) {  // only here if tested in WiFi
+#if serialDebug
+    DEBUG_PRINTLN("Testing needle sweep");
+#endif
+    needleSweep();
+    //ElegantOTA.begin(ESPUI.server);  // Start ElegantOTA
+    tempNeedleSweep = false;  // reset the flag
+  }
 
   // send CAN data for paddle up/down etc
   if (boolPadUp) {
-    Serial.println(F("Paddle up"));
+#if serialDebug
+    DEBUG_PRINTLN("Paddle up");
+#endif
     sendPaddleUpFrame();
     boolPadUp = false;
   }
   if (boolPadDown) {
-    Serial.println(F("Paddle down"));
+#if serialDebug
+    DEBUG_PRINTLN("Paddle down");
+#endif
     sendPaddleDownFrame();
     boolPadDown = false;
   }
 
-  // get speed type (ECU, DSG or GPS)
-  switch (speedType) {
-    case 0:  // get speed from ecu
+  if (testSpeedo) {
+#if serialDebug
+    DEBUG_PRINTLN("Test speedo");
+#endif
+    vehicleSpeed = tempSpeed;
+  } else {
+    if (useHall) {
       if (calcSpeed > 0) {
         vehicleSpeed = (byte)(calcSpeed >= 255 ? 0 : calcSpeed);
       }
-      break;
-
-    case 1:                                       // get speed from dsg
+    }
+    if (useDSG) {
       if ((millis() - lastMillis) > gearPause) {  // check to see if x ms (linPause) has elapsed - slow down the frames!
         lastMillis = millis();
         parseDSG();
       }
       vehicleSpeed = int(dsgSpeed);
-      break;
-
-    case 2:  // get speed from gps
-      parseGPS();
+    }
+    if (useGPS) {
       vehicleSpeed = int(gpsSpeed);
-      break;
-
-    case 3:
+    }
+    if (useABS) {
       vehicleSpeed = int(absSpeed);
-      break;
+    }
+  }
+
+  if (testRPM) {  // set vehicleRPM is testing or not
+#if serialDebug
+    DEBUG_PRINTLN("Testing RPM");
+#endif
+    vehicleRPM = tempRPM;
+  } else {
+    vehicleRPM = vehicleRPMCAN;
   }
 
   // check to see what the current RPM is, if it's over the limit, trigger the EPC or EML light as a warning!
   if (useEPCShiftLight || useEMLShiftLight) {
     if (vehicleRPM > shiftLimit) {
-      blinkLED(shiftLightRate, 3, useEPCShiftLight, useEMLShiftLight, 0, 0);  // args: flash rate, number of flashes, use EPC or use EML as light, RPM/Speed are set to 0, don't use them (kept in for self-test)
+      blinkLED(shiftLightRate, shiftFlashes, useEPCShiftLight, useEMLShiftLight, 0, 0);  // args: flash rate, number of flashes, use EPC or use EML as light, RPM/Speed are set to 0, don't use them (kept in for self-test)
     }
   }
 
   // calculate final frequency:
-  frequencySpeed = map(vehicleSpeed, 0, clusterSpeedLimit, 0, maxSpeed);
+  frequencySpeed = map(vehicleSpeed, 0, maxSpeed, 0, maxSpeed);
   frequencyRPM = map(vehicleRPM, 0, clusterRPMLimit, 0, maxRPM);
+
+#if serialDebug
+  DEBUG_PRINTLN(vehicleRPM);
+  DEBUG_PRINTLN(vehicleSpeed);
+#endif
+
   // change the frequency of both RPM & Speed as per CAN information
   if ((millis() - lastMillis2) > rpmPause) {  // check to see if x ms (linPause) has elapsed - slow down the frames!
     lastMillis2 = millis();
-#if stateDebug
-    Serial.println(frequencyRPM);
-    Serial.println(frequencySpeed);
-#endif
     setFrequencyRPM(frequencyRPM);      // minimum speed may command 0 and setFreq. will cause crash, so +1 to error 'catch'
     setFrequencySpeed(frequencySpeed);  // minimum speed may command 0 and setFreq. will cause crash, so +1 to error 'catch'  }
   }

@@ -26,7 +26,7 @@ void onBodyRX(const CAN_message_t& frame) {
       // frame[2] (byte 3) > motor speed low byte
       // frame[3] (byte 4) > motor speed high byte
       // frame[4] (byte 3) > khm speed?
-      vehicleRPM = ((frame.buf[3] << 8) | frame.buf[2]) * 0.25;  // conversion: 0.25*HEX
+      vehicleRPMCAN = ((frame.buf[3] << 8) | frame.buf[2]) * 0.25;  // conversion: 0.25*HEX
       lastCAN = millis();
       break;
 
@@ -63,7 +63,6 @@ void onBodyRX(const CAN_message_t& frame) {
 
       if (lever_raw) {
         gear = gear_raw;
-        Serial.println(gear);
 
         switch (gear) {
           case 3:  // reverse
@@ -96,11 +95,9 @@ void onBodyRX(const CAN_message_t& frame) {
       // do nothing...
       break;
   }
-    // do the calc
 
-
-#if stateDebug
-  Serial.println();
+#if serialDebug
+  Serial.println("From CAN:");
   Serial.print("vehicleRPM: ");
   Serial.println(vehicleRPM);
 
@@ -142,34 +139,15 @@ void sendPaddleDownFrame() {
   }
 }
 
-void broadcastGRA() {
-  CAN_message_t broadcastGRA;  //0x7C0
-  broadcastGRA.id = GRA_ID;
-  broadcastGRA.len = 4;
-  broadcastGRA.buf[0] = GRA_checksum;  //
-  broadcastGRA.buf[1] = 0x00;          //
-  broadcastGRA.buf[2] = 0x00;          //
-  broadcastGRA.buf[3] = 0x00;          //
-  GRA_checksum++;
-  if (GRA_checksum >= 255) {
-    GRA_checksum = 0;
-  }
-
-  //if (!chassisCAN.write(broadcastGRA)) {              // write CAN frame from the body to the Haldex
-  //  Serial.println(F("Chassis CAN Write TX Fail!"));  // if writing is unsuccessful, there is something wrong with the Haldex(!) Possibly flash red LED?
-  //}
-}
-
 void broadcastSpeed() {
-  CAN_message_t broadcastSpeed;  //0x7C0
-  broadcastSpeed.id = speed_ID;
-  broadcastSpeed.len = 4;
+  // todo
+  /*  CAN_message_t broadcastSpeed;  //0x7C0
+  broadcastSpeed.id = BRAKES1_ID;
+  broadcastSpeed.len = 8;
   broadcastSpeed.buf[0] = vehicleSpeed;  //
-  broadcastSpeed.buf[1] = 0x00;          //
-  broadcastSpeed.buf[2] = 0x00;          //
-  broadcastSpeed.buf[3] = 0x00;          //
-
-  if (!chassisCAN.write(broadcastSpeed)) {            // write CAN frame from the body to the Haldex
-    Serial.println(F("Chassis CAN Write TX Fail!"));  // if writing is unsuccessful, there is something wrong with the Haldex(!) Possibly flash red LED?
+  broadcastSpeed.buf[2] = vehicleSpeed;
+  broadcastSpeed.buf[3] = 0x00;
+    if (!chassisCAN.write(broadcastSpeed)) {  // write CAN frame from the body to the Haldex
   }
+  */
 }

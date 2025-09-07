@@ -4,14 +4,14 @@ void parseGPS() {
   }
 
   if (gps.satellites.value() == 0) {
-    hasError = true;
+    hasGPS = false;
   } else {
-    hasError = false;
+    hasGPS = true;
   }
 
   if (gps.speed.isUpdated()) {
-    gpsSpeed = int(gps.speed.kmph()); // * 0.621371;  // factor for converting kmh > mph
-#if stateDebug
+    gpsSpeed = int(gps.speed.kmph());  // * 0.621371;  // factor for converting kmh > mph
+#if serialDebugGPS
     Serial.println(gps.satellites.value());
     Serial.println(gps.hdop.hdop());
 

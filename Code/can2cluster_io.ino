@@ -1,31 +1,43 @@
 void basicInit() {
 // basic initialisation - setup pins for IO & setup CAN for receiving...
-#if stateDebug
+
+// if ANY Serial request is made, begin Serial
+#if serialDebug || serialDebugWifi || serialDebugEEP || serialDebugGPS || ChassisCANDebug
   Serial.begin(baudSerial);
+  delay(500);
   Serial.println(F("CAN-BUS to Cluster Initialising..."));
-  Serial.println(F("Setting up pins..."));
+#endif
+
+#if serialDebug
+  Serial.println(F("Reading EEPROM..."));
+#endif
+  readEEP();
+#if serialDebug
+  Serial.println(F("Read EEPROM!"));
 #endif
 
   ss.begin(baudGPS);
-#if stateDebug
+#if serialDebugGPS
   Serial.println(TinyGPSPlus::libraryVersion());
   Serial.println(F("Sats HDOP  Latitude   Longitude   Fix  Date       Time     Date Alt    Course Speed Card  Distance Course Card  Chars Sentences Checksum"));
   Serial.println(F("           (deg)      (deg)       Age                      Age  (m)    --- from GPS ----  ---- to London  ----  RX    RX        Fail"));
   Serial.println(F("----------------------------------------------------------------------------------------------------------------------------------------"));
 #endif
 
+#if serialDebug
+  Serial.println(F("Setting up IO (pins & buttons)..."));
+#endif
   setupPins();  // initialise the CAN chip
   setupButtons();
-
-#if stateDebug
-  Serial.println(F("Setup pins complete!"));
+#if serialDebug
+  Serial.println(F("Setup IO Complete!"));
 #endif
 
-#if stateDebug
+#if serialDebug
   Serial.println(F("CAN Chip Initialising..."));
 #endif
   canInit();  // initialise the CAN chip
-#if stateDebug
+#if serialDebug
   Serial.println(F("CAN Chip Initialised!"));
 #endif
 }
@@ -34,21 +46,17 @@ void setupPins() {
   // define pin modes for outputs
   pinMode(onboardLED, OUTPUT);  // use the built-in LED for displaying errors!
 
-  pinMode(pinSpeed, OUTPUT);
-  pinMode(pinEML, OUTPUT);
-  pinMode(pinEPC, OUTPUT);
-  pinMode(pinReverse, OUTPUT);
+  pinMode(pinSpeed, OUTPUT);    // for speed output
+  pinMode(pinEML, OUTPUT);      // for engine management light output
+  pinMode(pinEPC, OUTPUT);      // for electronic pedal control output
+  pinMode(pinReverse, OUTPUT);  // for reverse MOSFET output (5A max!)
 
-#if hasCoilOutput
-  pinMode(pinCoil, OUTPUT);
-#endif
-#if !hasCoilOutput
-  pinMode(pinRPM, OUTPUT);
-#endif
+  pinMode(pinCoil, OUTPUT);  // for high-voltage RPM (can be turned on/off in WiFi so always enable regardless)
+  pinMode(pinRPM, OUTPUT);   // for standard square wave RPM
 
-  // reset buttons if testLED is used (can be removed if 'testLED' is not used but keeping here for solidness)
-  pinMode(pinPaddleUp, INPUT);
-  pinMode(pinPaddleDown, INPUT);
+  pinMode(pinPaddleUp, INPUT);                                                 // for DSG paddle up - pull to ground
+  pinMode(pinPaddleDown, INPUT);                                               // for DSG paddles down - pull to ground
+  attachInterrupt(digitalPinToInterrupt(pinHallSensor), incomingHz, FALLING);  //setup interrupt to toggle pin on change
 }
 
 void setupButtons() {
@@ -63,38 +71,37 @@ void needleSweep() {
   setFrequencyRPM(frequencyRPM);
   setFrequencySpeed(frequencySpeed);
 
-  delay(needleSweepDelay);
+  delay(sweepSpeed);
 
-#if stateDebug
+#if serialDebug
   Serial.println(F("Starting needle sweep..."));
 #endif
 
   // ramp up
   for (int i = 0; i < maxRPM; i++) {
-
     setFrequencySpeed(i * stepSpeed);
     setFrequencyRPM(i * stepRPM);
-    delay(needleSweepDelay);
+    delay(sweepSpeed);
   }
-  delay(needleSweepDelay);
+  delay(sweepSpeed);
 
   // ramp down
   for (int i = maxRPM; i > 0; i--) {  // set at >0 to stop the needle 'bouncing' when it returns to zero
-
     setFrequencySpeed(i * stepSpeed);
     setFrequencyRPM(i * stepRPM);
-    delay(needleSweepDelay);
+    delay(sweepSpeed);
   }
-  delay(needleSweepDelay);
+
+  delay(sweepSpeed);  // hold at max RPM (to stop immediate return)
 
   frequencyRPM = 0;
   frequencySpeed = 0;
   setFrequencyRPM(frequencyRPM);
   setFrequencySpeed(frequencySpeed);
 
-  delay(needleSweepDelay);
+  delay(sweepSpeed);
 
-#if stateDebug
+#if serialDebug
   Serial.println(F("Finished needle sweep!"));
 #endif
 }
@@ -136,7 +143,7 @@ void diagTest() {
     vehicleRPM = 1000;
     frequencyRPM = 1;
   }
-  if (vehicleSpeed > clusterSpeedLimit) {
+  if (vehicleSpeed > maxSpeed) {
     vehicleSpeed = 1;
     frequencySpeed = 1;
   }
@@ -159,4 +166,36 @@ void checkError() {
   } else {
     digitalWrite(onboardLED, LOW);  // turn internal LED off
   }
+}
+
+// adjust output frequency
+void setFrequencyRPM(long frequencyHz) {
+  if (frequencyHz != 0) {
+    timerAlarmDisable(timer0);
+    timerAlarmWrite(timer0, 1000000l / frequencyHz, true);
+    timerAlarmEnable(timer0);
+  } else {
+    timerAlarmDisable(timer0);
+  }
+}
+
+// adjust output frequency
+void setFrequencySpeed(long frequencyHz) {
+  if (frequencyHz != 0) {
+    timerAlarmDisable(timer1);
+    timerAlarmWrite(timer1, 1000000l / frequencyHz, true);
+    timerAlarmEnable(timer1);
+  } else {
+    timerAlarmDisable(timer1);
+  }
+}
+
+void incomingHz() {                                               // Interrupt 0 service routine
+  static unsigned long previousMicros = micros();                 // remember variable, initialize first time
+  unsigned long presentMicros = micros();                         // read microseconds
+  unsigned long revolutionTime = presentMicros - previousMicros;  // works fine with wrap-around of micros()
+  if (revolutionTime < 1000UL) return;                            // avoid divide by 0, also debounce, speed can't be over 60,000 was 1000UL
+  dutyCycleIncoming = (60000000UL / revolutionTime) / 60;         // calculate
+  previousMicros = presentMicros;
+  lastPulse = millis();
 }
