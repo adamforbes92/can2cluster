@@ -91,6 +91,18 @@ void onBodyRX(const CAN_message_t& frame) {
       vehicleSpeed = ((frame.buf[2] << 8) | frame.buf[3]) * (2.25 / 256);  // conversion: 0.25*HEX // this is RPM
       break;
 
+    case fordECU1_ID:
+      vehicleRPM = frame.buf[1] & 0x00FF;
+      vehicleRPM |= (frame.buf[0] << 8) & 0x7F00;
+      break;
+
+    case fordECU2_ID:
+      vehicleOilPressure = (frame.buf[5] >> 4) & 0x01;
+      vehicleBattLight = (frame.buf[4] >> 1) & 0x01;
+      vehicleEML = (frame.buf[4] >> 6) & 0x03;
+      vehicleCoolantTemp = (frame.buf[0] & 0xFF) - 40;
+      break;
+
     default:
       // do nothing...
       break;

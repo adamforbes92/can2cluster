@@ -123,14 +123,14 @@ void loop() {
 
   // send CAN data for paddle up/down etc
   if (boolPadUp) {
-#if serialDebug
+#if serialDebugPaddles
     DEBUG_PRINTLN("Paddle up");
 #endif
     sendPaddleUpFrame();
     boolPadUp = false;
   }
   if (boolPadDown) {
-#if serialDebug
+#if serialDebugPaddles
     DEBUG_PRINTLN("Paddle down");
 #endif
     sendPaddleDownFrame();

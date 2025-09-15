@@ -11,13 +11,14 @@
 
 /* Defines */
 // Debug statements
-#define serialDebug 0      // if 1, will use Serial talkback ** CAN CHANGE THIS **
-#define ChassisCANDebug 0  // if 1, will print CAN 2 (Chassis) messages ** CAN CHANGE THIS **
-#define serialDebugWifi 0  // for wifi feedback
-#define serialDebugEEP 1   // for EEP Serial feedback
-#define serialDebugGPS 0   // for GPS Serial feedback
-#define eepRefresh 2000    // EEPROM save in ms
-#define wifiDisable 60000  // turn off WiFi in ms - check for 0 connections after 60s and disable WiFi - burning power otherwise
+#define serialDebug 0         // if 1, will use Serial talkback ** CAN CHANGE THIS **
+#define ChassisCANDebug 0     // if 1, will print CAN 2 (Chassis) messages ** CAN CHANGE THIS **
+#define serialDebugWifi 0     // for wifi feedback
+#define serialDebugEEP 1      // for EEP Serial feedback
+#define serialDebugGPS 0      // for GPS Serial feedback
+#define serialDebugPaddles 1  // for Paddle Serial feedback
+#define eepRefresh 2000       // EEPROM save in ms
+#define wifiDisable 60000     // turn off WiFi in ms - check for 0 connections after 60s and disable WiFi - burning power otherwise
 
 // setup - main inputs
 #define speedUnits 0                   // 0 = kph, 1 = mph
@@ -64,7 +65,7 @@ extern float stepSpeed = 1;
 #define baudGPS 9600       // baud rate for the GPS device
 
 // DSG variables
-#define PI 3.141592653589793 
+#define PI 3.141592653589793
 #define LEVER_P 0x8               // park position
 #define LEVER_R 0x7               // reverse position
 #define LEVER_N 0x6               // neutral position
@@ -86,12 +87,13 @@ extern float stepSpeed = 1;
 #define DEBUG_PRINTF(x...)
 #endif
 
-extern uint16_t vehicleRPMCAN = 0; // current CAN RPM
-extern uint16_t vehicleRPM = 0;    // current RPM for cluster
-extern uint16_t vehicleSpeed = 0;  // current Speed for cluster
-extern uint16_t calcSpeed = 0;     // temp var for calculating speed
-extern long tempSpeed = 0;  // for testing only, set fixed speed in kmh.  Can set to 0 to speed up / slow down on repeat with testSpeed enabled
-extern long tempRPM = 0;    // for testing only, set fixed speed in kmh.  Can set to 0 to speed up / slow down on repeat with testSpeed enabled
+extern uint8_t vehicleCoolantTemp = 0;
+extern uint16_t vehicleRPMCAN = 0;  // current CAN RPM
+extern uint16_t vehicleRPM = 0;     // current RPM for cluster
+extern uint16_t vehicleSpeed = 0;   // current Speed for cluster
+extern uint16_t calcSpeed = 0;      // temp var for calculating speed
+extern long tempSpeed = 0;          // for testing only, set fixed speed in kmh.  Can set to 0 to speed up / slow down on repeat with testSpeed enabled
+extern long tempRPM = 0;            // for testing only, set fixed speed in kmh.  Can set to 0 to speed up / slow down on repeat with testSpeed enabled
 
 extern double ecuSpeed = 0;   // ECU speed (from analog speed sensor)
 extern double dsgSpeed = 0;   // DSG speed (from RPM & Gear), ratios in '_dsg.ino'
@@ -121,6 +123,8 @@ extern bool vehicleEML = false;  // current EML light status
 extern bool vehicleEPC = false;  // current EPC light status
 extern bool vehicleReverse = false;
 extern bool vehiclePark = false;
+extern bool vehicleOilPressure = false;
+extern bool vehicleBattLight = false;
 
 // external variables / triggers
 extern bool boolPadUp = false;    // current EML light status
@@ -162,6 +166,9 @@ extern bool tempShiftLight = false;
 
 #define emeraldECU1_ID 0x1000
 #define emeraldECU2_ID 0x1001
+
+#define fordECU1_ID 0x201 
+#define fordECU2_ID 0x420
 
 // for main functions
 extern void basicInit(void);
