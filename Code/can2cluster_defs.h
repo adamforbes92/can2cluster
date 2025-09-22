@@ -14,9 +14,9 @@
 #define serialDebug 0         // if 1, will use Serial talkback ** CAN CHANGE THIS **
 #define ChassisCANDebug 0     // if 1, will print CAN 2 (Chassis) messages ** CAN CHANGE THIS **
 #define serialDebugWifi 0     // for wifi feedback
-#define serialDebugEEP 1      // for EEP Serial feedback
+#define serialDebugEEP 0      // for EEP Serial feedback
 #define serialDebugGPS 0      // for GPS Serial feedback
-#define serialDebugPaddles 1  // for Paddle Serial feedback
+#define serialDebugPaddles 0  // for Paddle Serial feedback
 #define eepRefresh 2000       // EEPROM save in ms
 #define wifiDisable 60000     // turn off WiFi in ms - check for 0 connections after 60s and disable WiFi - burning power otherwise
 
