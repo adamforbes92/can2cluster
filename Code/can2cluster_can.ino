@@ -20,6 +20,7 @@ void onBodyRX(const CAN_message_t& frame) {
   }
   Serial.println();
 #endif
+  lastCAN = millis();
 
   switch (frame.id) {
     case MOTOR1_ID:
@@ -27,7 +28,6 @@ void onBodyRX(const CAN_message_t& frame) {
       // frame[3] (byte 4) > motor speed high byte
       // frame[4] (byte 3) > khm speed?
       vehicleRPMCAN = ((frame.buf[3] << 8) | frame.buf[2]) * 0.25;  // conversion: 0.25*HEX
-      lastCAN = millis();
       break;
 
     case MOTOR2_ID:
@@ -92,8 +92,8 @@ void onBodyRX(const CAN_message_t& frame) {
       break;
 
     case fordECU1_ID:
-      vehicleRPM = frame.buf[1] & 0x00FF;
-      vehicleRPM |= (frame.buf[0] << 8) & 0x7F00;
+      vehicleRPMCAN = frame.buf[1] & 0x00FF;
+      vehicleRPMCAN |= (frame.buf[0] << 8) & 0x7F00;
       break;
 
     case fordECU2_ID:

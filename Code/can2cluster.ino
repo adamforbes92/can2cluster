@@ -16,9 +16,9 @@ TinyGPSPlus gps;
 
 // for tickers
 TickTwo tickError(checkError, 500);              // timer for error checking
-TickTwo tickBroadcastSpeed(broadcastSpeed, 20);  // timer for error checking
-TickTwo tickEEP(writeEEP, eepRefresh);
-TickTwo tickWiFi(disconnectWifi, wifiDisable);  // timer for disconnecting wifi after 30s if no connections - saves power
+TickTwo tickBroadcastSpeed(broadcastSpeed, 20);  // timer broadcasting speed over CAN.  Adjustable in '_can.ino' for address to broadcat to
+TickTwo tickEEP(writeEEP, eepRefresh);           // timer to update/save current EEP values
+TickTwo tickWiFi(disconnectWifi, wifiDisable);   // timer for disconnecting wifi after 30s if no connections - saves power
 
 Preferences pref;
 
@@ -92,7 +92,7 @@ void loop() {
   btnPadUp.tick();    // refresh the paddle up ticker
   btnPadDown.tick();  // refresh the paddle down ticker
 
-  parseGPS(); // in _gps.ino
+  parseGPS();  // in _gps.ino
 
   updateLabels();  // in _wifi.ino.  Update the WiFi labels to show current data
 
