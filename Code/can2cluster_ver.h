@@ -13,4 +13,5 @@ V1.08 - added DSG reverse specifics
 V1.09 - added WiFi
 V1.10 - tested and added selectors for input type on WiFi rather than switches.  Overall cleanup
 V1.11 - added Ford details - thanks to Jamie(!)
+V1.12 - added MPH conversion
 */

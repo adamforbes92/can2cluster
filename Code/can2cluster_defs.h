@@ -22,6 +22,7 @@
 
 // setup - main inputs
 #define speedUnits 0                   // 0 = kph, 1 = mph
+#define mphFactor 621371  // to convert from kmh > mph
 #define wifiHostName "Can2Cluster V2"  // the WiFi name
 
 // setup - tweaky things

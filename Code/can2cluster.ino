@@ -142,6 +142,9 @@ void loop() {
     DEBUG_PRINTLN("Test speedo");
 #endif
     vehicleSpeed = tempSpeed;
+    if (speedUnits == 1) {
+      vehicleSpeed = int((vehicleSpeed * mphFactor) / 1000000);  //621371
+    }
   } else {
     if (useHall) {
       if (calcSpeed > 0) {
@@ -160,6 +163,9 @@ void loop() {
     }
     if (useABS) {
       vehicleSpeed = int(absSpeed);
+    }
+    if (speedUnits == 1) {
+      vehicleSpeed = int((vehicleSpeed * mphFactor) / 1000000);  //621371
     }
   }
 
