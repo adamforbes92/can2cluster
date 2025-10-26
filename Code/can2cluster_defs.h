@@ -17,6 +17,7 @@
 #define serialDebugEEP 0      // for EEP Serial feedback
 #define serialDebugGPS 0      // for GPS Serial feedback
 #define serialDebugPaddles 0  // for Paddle Serial feedback
+#define serialDebugDSG 0  // for Paddle Serial feedback
 #define eepRefresh 2000       // EEPROM save in ms
 #define wifiDisable 60000     // turn off WiFi in ms - check for 0 connections after 60s and disable WiFi - burning power otherwise
 
@@ -126,6 +127,8 @@ extern bool vehicleReverse = false;
 extern bool vehiclePark = false;
 extern bool vehicleOilPressure = false;
 extern bool vehicleBattLight = false;
+extern uint8_t GRA_counter = 0;
+extern uint8_t GRA_crc = 0;
 
 // external variables / triggers
 extern bool boolPadUp = false;    // current EML light status
@@ -152,7 +155,7 @@ extern bool tempShiftLight = false;
 #define MOTOR7_ID 0x588
 
 #define MOTOR_FLEX_ID 0x580
-#define GRA_ID 0x38A   // byte 1 & 3 are shaft speeds?
+#define GRA_ID 0x38A   
 #define gear_ID 0x440  // lower 4 bits of byte 2 are gear?
 
 #define BRAKES1_ID 0x1A0
@@ -180,6 +183,7 @@ extern void needleSweep(void);
 extern void setupPins(void);
 extern void blinkLED(int duration, int flashes, bool boolEPC, bool boolEML, bool boolRPM, bool boolSpeed);
 extern void broadcastSpeed();
+extern void broadcastGRA();
 extern void setFrequencySpeed();
 extern void setFrequencyRPM();
 extern void incomingHz();

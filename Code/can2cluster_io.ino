@@ -2,7 +2,7 @@ void basicInit() {
 // basic initialisation - setup pins for IO & setup CAN for receiving...
 
 // if ANY Serial request is made, begin Serial
-#if serialDebug || serialDebugWifi || serialDebugEEP || serialDebugGPS || ChassisCANDebug
+#if serialDebug || serialDebugWifi || serialDebugEEP || serialDebugGPS || ChassisCANDebug || serialDebugPaddles
   Serial.begin(baudSerial);
   delay(500);
   Serial.println(F("CAN-BUS to Cluster Initialising..."));

@@ -17,6 +17,7 @@ TinyGPSPlus gps;
 // for tickers
 TickTwo tickError(checkError, 500);              // timer for error checking
 TickTwo tickBroadcastSpeed(broadcastSpeed, 20);  // timer broadcasting speed over CAN.  Adjustable in '_can.ino' for address to broadcat to
+TickTwo tickBroadcastGRA(broadcastGRA, 20);      // timer broadcasting speed over CAN.  Adjustable in '_can.ino' for address to broadcat to
 TickTwo tickEEP(writeEEP, eepRefresh);           // timer to update/save current EEP values
 TickTwo tickWiFi(disconnectWifi, wifiDisable);   // timer for disconnecting wifi after 30s if no connections - saves power
 
@@ -69,6 +70,7 @@ void setup() {
 
   tickError.start();           // begin the error ticker (for blinking onboard LED)
   tickBroadcastSpeed.start();  // begin ticker for broadcasting speed to CAN
+  tickBroadcastGRA.start();    // begin ticker for broadcasting speed to CAN
   tickEEP.start();             // begin ticker for the EEPROM
   tickWiFi.start();            // begin ticker for the WiFi (to turn off after 60s)
 
@@ -86,6 +88,7 @@ void loop() {
   // get the easy stuff out the way first
   tickError.update();           // refresh the Error ticker
   tickBroadcastSpeed.update();  //refresh the Broadcast Speed (via. CAN) ticker
+  tickBroadcastGRA.update();     // begin ticker for broadcasting speed to CAN
   tickEEP.update();             // refresh the EEP ticker
   tickWiFi.update();            // refresh the WiFi ticker
 
@@ -122,7 +125,7 @@ void loop() {
   }
 
   // send CAN data for paddle up/down etc
-  if (boolPadUp) {
+  /* if (boolPadUp) {
 #if serialDebugPaddles
     DEBUG_PRINTLN("Paddle up");
 #endif
@@ -135,7 +138,7 @@ void loop() {
 #endif
     sendPaddleDownFrame();
     boolPadDown = false;
-  }
+  }*/
 
   if (testSpeedo) {
 #if serialDebug
