@@ -60,12 +60,30 @@ Purchased modules will come pre-loaded with the most recent firmware, check back
 
 > Use the 'IO' tab to confirm incoming data
 
+## Adding CAN Functionality
+Users wishing to add CAN functionality not available are encourged to push commits to the project.  The main section of code for managing imcoming CAN messages are handled in an interrupt and pushed automatically.  Users should know the CAN ID and Bytes they wish to process and what variables to assign them to.
+
+For example (in _CAN.ino under "onBodyRX");
+```
+    case emeraldECU1_ID:
+      vehicleRPM = ((frame.buf[0] << 8) | frame.buf[1]);  // conversion: 0.25*HEX // this is RPM
+      break;
+
+    case emeraldECU2_ID:
+      vehicleSpeed = ((frame.buf[2] << 8) | frame.buf[3]) * (2.25 / 256);  // conversion: 0.25*HEX // this is RPM
+      break;
+
+```
+The above entry will check to see if there is a CAN message from "0x1000" or "0x1001" (Emerald ECU 1 & 2) and then parse the data to the relevant variables.
+
 ## Adding GPS
 Users wishing to add GPS at a future date can do - the boards are already socketed in readiness.  The 4-pin JST XH Connector will provide 3.3v, RX, TX and ground.
+
 ![GPS Connection](/Images/BoardGPS.png)
 
 ## Jumpers
 To keep functionality, there are a variety of jumpers available on the board which can be added/removed to suit the chassis.
+
 ![Jumpers](/Images/Jumpers.png)
 
 ### R-Term
