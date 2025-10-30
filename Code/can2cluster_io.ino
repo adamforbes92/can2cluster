@@ -2,21 +2,21 @@ void basicInit() {
 // basic initialisation - setup pins for IO & setup CAN for receiving...
 
 // if ANY Serial request is made, begin Serial
-#if serialDebug || serialDebugWifi || serialDebugEEP || serialDebugGPS || ChassisCANDebug || serialDebugPaddles
+#if serialDebug || serialDebugWifi || serialDebugEEP || serialDebugGPS || ChassisCANDebug || serialDebugPaddles || serialDebugIO
   Serial.begin(baudSerial);
   delay(500);
-  Serial.println(F("CAN-BUS to Cluster Initialising..."));
+  DEBUG_PRINTLN("CAN-BUS to Cluster Initialising...");
 #endif
 
 #if serialDebug
-  Serial.println(F("Reading EEPROM..."));
+  DEBUG_PRINTLN("Reading EEPROM...");
 #endif
-  readEEP();
+  readEEP();  // read EEPROM
 #if serialDebug
-  Serial.println(F("Read EEPROM!"));
+  DEBUG_PRINTLN("Read EEPROM!");
 #endif
 
-  ss.begin(baudGPS);
+  ss.begin(baudGPS);  // begin GPS Module
 #if serialDebugGPS
   Serial.println(TinyGPSPlus::libraryVersion());
   Serial.println(F("Sats HDOP  Latitude   Longitude   Fix  Date       Time     Date Alt    Course Speed Card  Distance Course Card  Chars Sentences Checksum"));
@@ -27,14 +27,14 @@ void basicInit() {
 #if serialDebug
   Serial.println(F("Setting up IO (pins & buttons)..."));
 #endif
-  setupPins();  // initialise the CAN chip
-  setupButtons();
+  setupPins();     // begin IO
+  setupButtons();  // setup buttons for interrupt
 #if serialDebug
-  Serial.println(F("Setup IO Complete!"));
+  DEBUG_PRINTLN("Setup IO Complete!");
 #endif
 
 #if serialDebug
-  Serial.println(F("CAN Chip Initialising..."));
+  DEBUG_PRINTLN("CAN Chip Initialising...");
 #endif
   canInit();  // initialise the CAN chip
 #if serialDebug
@@ -54,15 +54,22 @@ void setupPins() {
   pinMode(pinCoil, OUTPUT);  // for high-voltage RPM (can be turned on/off in WiFi so always enable regardless)
   pinMode(pinRPM, OUTPUT);   // for standard square wave RPM
 
-  pinMode(pinPaddleUp, INPUT);                                                 // for DSG paddle up - pull to ground
-  pinMode(pinPaddleDown, INPUT);                                               // for DSG paddles down - pull to ground
+  //pinMode(pinPaddleUp, INPUT);                                                 // for DSG paddle up - pull to ground
+  //pinMode(pinPaddleDown, INPUT);                                               // for DSG paddles down - pull to ground
   attachInterrupt(digitalPinToInterrupt(pinHallSensor), incomingHz, FALLING);  //setup interrupt to toggle pin on change
 }
 
 void setupButtons() {
   //setup buttons / inputs
-  btnPadUp.attachSingleClick(padUpFunc);      // call intSingle on a single click (single wipe)
-  btnPadDown.attachSingleClick(padDownFunc);  // call intSingle on a single click (single wipe)
+  btnPadUp.setMenuCount(0);
+  btnPadDown.setMenuCount(0);
+
+  //InterruptButton::m_RTOSservicerStackDepth = 4096; // Use larger values for more memory intensive functions if using Asynchronous mode.
+  btnPadUp.bind(Event_KeyPress, 0, &padUpFunc);
+  btnPadDown.bind(Event_KeyPress, 0, &padDownFunc);
+
+  btnPadUp.setMode(Mode_Asynchronous);
+  btnPadDown.setMode(Mode_Asynchronous);
 }
 
 void needleSweep() {

@@ -24,8 +24,8 @@ TickTwo tickWiFi(disconnectWifi, wifiDisable);   // timer for disconnecting wifi
 Preferences pref;
 
 // for inputs / paddles
-buttonClass btnPadUp(pinPaddleUp, 0, true);
-buttonClass btnPadDown(pinPaddleDown, 0, true);
+InterruptButton btnPadUp(pinPaddleUp, LOW, GPIO_MODE_INPUT, 1000, 500, 750, 80000);      // pin, GPIO_MODE_INPUT, state when pressed, long press, autorepeat, double-click, debounce
+InterruptButton btnPadDown(pinPaddleDown, LOW, GPIO_MODE_INPUT, 1000, 500, 750, 80000);  // pin, GPIO_MODE_INPUT, state when pressed, long press, autorepeat, double-click, debounce
 
 // define two hardware timers for RPM & Speed outputs
 hw_timer_t* timer0 = NULL;
@@ -59,7 +59,7 @@ void setupTimer() {
   timer0 = timerBegin(0, 40, true);  // used to be div 80
   timerAttachInterrupt(timer0, &onTimer0, true);
 
-  timer1 = timerBegin(1, 40, true);  //used to be div 80 - 40 results in perfect hz transmission
+  timer1 = timerBegin(1, 40, true);  // used to be div 80 - 40 results in perfect hz transmission
   timerAttachInterrupt(timer1, &onTimer1, true);
 }
 //}
@@ -70,7 +70,7 @@ void setup() {
 
   tickError.start();           // begin the error ticker (for blinking onboard LED)
   tickBroadcastSpeed.start();  // begin ticker for broadcasting speed to CAN
-  tickBroadcastGRA.start();    // begin ticker for broadcasting speed to CAN
+  tickBroadcastGRA.start();    // begin ticker for broadcasting GRA to CAN
   tickEEP.start();             // begin ticker for the EEPROM
   tickWiFi.start();            // begin ticker for the WiFi (to turn off after 60s)
 
@@ -88,12 +88,9 @@ void loop() {
   // get the easy stuff out the way first
   tickError.update();           // refresh the Error ticker
   tickBroadcastSpeed.update();  //refresh the Broadcast Speed (via. CAN) ticker
-  tickBroadcastGRA.update();     // begin ticker for broadcasting speed to CAN
+  tickBroadcastGRA.update();    // begin ticker for broadcasting speed to CAN
   tickEEP.update();             // refresh the EEP ticker
   tickWiFi.update();            // refresh the WiFi ticker
-
-  btnPadUp.tick();    // refresh the paddle up ticker
-  btnPadDown.tick();  // refresh the paddle down ticker
 
   parseGPS();  // in _gps.ino
 
@@ -116,7 +113,7 @@ void loop() {
   }
 
   if (tempNeedleSweep) {  // only here if tested in WiFi
-#if serialDebug
+#if serialDebugIO
     DEBUG_PRINTLN("Testing needle sweep");
 #endif
     needleSweep();
@@ -124,25 +121,9 @@ void loop() {
     tempNeedleSweep = false;  // reset the flag
   }
 
-  // send CAN data for paddle up/down etc
-  /* if (boolPadUp) {
-#if serialDebugPaddles
-    DEBUG_PRINTLN("Paddle up");
-#endif
-    sendPaddleUpFrame();
-    boolPadUp = false;
-  }
-  if (boolPadDown) {
-#if serialDebugPaddles
-    DEBUG_PRINTLN("Paddle down");
-#endif
-    sendPaddleDownFrame();
-    boolPadDown = false;
-  }*/
-
   if (testSpeedo) {
-#if serialDebug
-    DEBUG_PRINTLN("Test speedo");
+#if serialDebugIO
+    DEBUG_PRINTLN("Testing Speed");
 #endif
     vehicleSpeed = tempSpeed;
     if (speedUnits == 1) {
@@ -173,7 +154,7 @@ void loop() {
   }
 
   if (testRPM) {  // set vehicleRPM is testing or not
-#if serialDebug
+#if serialDebugIO
     DEBUG_PRINTLN("Testing RPM");
 #endif
     vehicleRPM = tempRPM;
@@ -192,14 +173,13 @@ void loop() {
   frequencySpeed = map(vehicleSpeed, 0, maxSpeed, 0, maxSpeed);
   frequencyRPM = map(vehicleRPM, 0, clusterRPMLimit, 0, maxRPM);
 
-#if serialDebug
-  DEBUG_PRINTLN(vehicleRPM);
-  DEBUG_PRINTLN(vehicleSpeed);
-#endif
-
   // change the frequency of both RPM & Speed as per CAN information
   if ((millis() - lastMillis2) > rpmPause) {  // check to see if x ms (linPause) has elapsed - slow down the frames!
     lastMillis2 = millis();
+#if serialDebugIO
+    DEBUG_PRINTLN(vehicleRPM);
+    DEBUG_PRINTLN(vehicleSpeed);
+#endif
     setFrequencyRPM(frequencyRPM);      // minimum speed may command 0 and setFreq. will cause crash, so +1 to error 'catch'
     setFrequencySpeed(frequencySpeed);  // minimum speed may command 0 and setFreq. will cause crash, so +1 to error 'catch'  }
   }

@@ -6,65 +6,68 @@
 #include <ESPUI.h>           // included for WiFi pages
 #include <WiFi.h>            // included for WiFi pages
 #include <ESPmDNS.h>         // included for WiFi pages
-#include <ButtonLib.h>       // included for paddles
+//#include <ButtonLib.h>       // included for paddles
 //#include <ElegantOTA.h>
+#include "InterruptButton.h"
 
 /* Defines */
 // Debug statements
-#define serialDebug 0         // if 1, will use Serial talkback ** CAN CHANGE THIS **
-#define ChassisCANDebug 0     // if 1, will print CAN 2 (Chassis) messages ** CAN CHANGE THIS **
+#define serialDebug 1         // if 1, will use Serial talkback ** CAN CHANGE THIS **
+#define ChassisCANDebug 1     // if 1, will print CAN 2 (Chassis) messages ** CAN CHANGE THIS **
 #define serialDebugWifi 0     // for wifi feedback
 #define serialDebugEEP 0      // for EEP Serial feedback
 #define serialDebugGPS 0      // for GPS Serial feedback
-#define serialDebugPaddles 0  // for Paddle Serial feedback
-#define serialDebugDSG 0  // for Paddle Serial feedback
+#define serialDebugPaddles 1  // for Paddle Serial feedback
+#define serialDebugDSG 1      // for DSG Serial feedback
+#define serialDebugIO 0       // for General IO Serial feedback
 #define eepRefresh 2000       // EEPROM save in ms
 #define wifiDisable 60000     // turn off WiFi in ms - check for 0 connections after 60s and disable WiFi - burning power otherwise
 
 // setup - main inputs
 #define speedUnits 0                   // 0 = kph, 1 = mph
-#define mphFactor 621371  // to convert from kmh > mph
+#define mphFactor 621371               // to convert from kmh > mph
 #define wifiHostName "Can2Cluster V2"  // the WiFi name
 
 // setup - tweaky things
 #define shiftLightRate 60  // flash EPC at xx ms.  Decreasing may lead to a 'constant' light because of the human eye... ** CAN CHANGE THIS **
 
 // setup - cluster RPM & speed limits
-extern uint16_t clusterRPMLimit = 7000;  // rpm
-extern uint16_t shiftLimit = 6000;       // rpm
-extern uint8_t shiftFlashes = 3;
-extern uint8_t sweepSpeed = 18;     // for needle sweep rate of change (in ms)
-extern uint16_t maxSpeed = 200;     // minimum cluster speed in kmh on the cluster
-extern uint16_t maxRPM = 230;       // minimum cluster speed in kmh on the cluster
-extern uint16_t maxFreqHall = 200;  // max frequency for top speed using the 02J / 02M hall sensor
-extern bool useEPCShiftLight = false;
-extern bool useEMLShiftLight = false;
+extern uint16_t clusterRPMLimit = 7000;  // rpm limit of the cluster face
+extern uint16_t shiftLimit = 6000;       // shift limit (for shift light)
+extern uint8_t shiftFlashes = 3;         // number of flashes for shift light
+extern uint8_t sweepSpeed = 18;          // for needle sweep rate of change (in ms)
+extern uint16_t maxSpeed = 200;          // maximum cluster speed in kmh on the cluster
+extern uint16_t maxRPM = 230;            // maximum rpm in hz for the cluster
+extern uint16_t maxFreqHall = 200;       // max frequency for top speed using the 02J / 02M hall sensor
+extern bool useEPCShiftLight = false;    // bool to use the EPC as a shift light
+extern bool useEMLShiftLight = false;    // bool to use the EML as a shift light
 
 // setup - step changes (for needle sweep)
 extern float stepRPM = 1.2;
 extern float stepSpeed = 1;
 
 // setup - pins (output)
-#define pinRX_CAN 17  // pin output for SN65HVD230 (CAN_RX)
-#define pinTX_CAN 16  // pin output for SN65HVD230 (CAN_TX)
-#define pinRX_GPS 14  // pin output for GPS NEO6M (GPS_RX)
-#define pinTX_GPS 13  // pin output for GPS NEO6M (GPS_TX)
-#define pinCoil 18    // pin output for RPM (MK2/High Output Coil Trigger)
-#define pinEPC 19     // pin output for EPC
-#define pinEML 21     // pin output for EML
-#define pinRPM 22     // pin output for RPM22
-#define pinSpeed 23   // pin output for Speed
-#define onboardLED 2  // pin onboard LED
+#define pinRX_CAN 17   // pin output for SN65HVD230 (CAN_RX)
+#define pinTX_CAN 16   // pin output for SN65HVD230 (CAN_TX)
+#define pinRX_GPS 14   // pin output for GPS NEO6M (GPS_RX)
+#define pinTX_GPS 13   // pin output for GPS NEO6M (GPS_TX)
+#define pinCoil 18     // pin output for RPM (MK2/High Output Coil Trigger)
+#define pinEPC 19      // pin output for EPC
+#define pinEML 21      // pin output for EML
+#define pinRPM 22      // pin output for RPM
+#define pinSpeed 23    // pin output for Speed
+#define onboardLED 2   // pin onboard LED
+#define pinReverse 26  // pin output for reverse mosfet
 
 // setup - pins (inputs)
 #define pinPaddleUp 34    // pin input for DSG paddle up
 #define pinPaddleDown 35  // pin input for DSG paddle down
-#define pinReverse 26     // pin input for relay / reverse 26
 #define pinHallSensor 25  // pin input for Hall Sensor
 
 // Baud Rates
 #define baudSerial 115200  // baud rate for debug
 #define baudGPS 9600       // baud rate for the GPS device
+#define baudCAN 500000     // baud rate for CAN
 
 // DSG variables
 #define PI 3.141592653589793
@@ -89,13 +92,13 @@ extern float stepSpeed = 1;
 #define DEBUG_PRINTF(x...)
 #endif
 
-extern uint8_t vehicleCoolantTemp = 0;
-extern uint16_t vehicleRPMCAN = 0;  // current CAN RPM
-extern uint16_t vehicleRPM = 0;     // current RPM for cluster
-extern uint16_t vehicleSpeed = 0;   // current Speed for cluster
-extern uint16_t calcSpeed = 0;      // temp var for calculating speed
-extern long tempSpeed = 0;          // for testing only, set fixed speed in kmh.  Can set to 0 to speed up / slow down on repeat with testSpeed enabled
-extern long tempRPM = 0;            // for testing only, set fixed speed in kmh.  Can set to 0 to speed up / slow down on repeat with testSpeed enabled
+extern uint8_t vehicleCoolantTemp = 0;  // for vehicle coolant temp
+extern uint16_t vehicleRPMCAN = 0;      // current CAN RPM
+extern uint16_t vehicleRPM = 0;         // current RPM for cluster
+extern uint16_t vehicleSpeed = 0;       // current Speed for cluster
+extern uint16_t calcSpeed = 0;          // temp var for calculating speed
+extern long tempSpeed = 0;              // for testing only, set fixed speed in kmh.  Can set to 0 to speed up / slow down on repeat with testSpeed enabled
+extern long tempRPM = 0;                // for testing only, set fixed speed in kmh.  Can set to 0 to speed up / slow down on repeat with testSpeed enabled
 
 extern double ecuSpeed = 0;   // ECU speed (from analog speed sensor)
 extern double dsgSpeed = 0;   // DSG speed (from RPM & Gear), ratios in '_dsg.ino'
@@ -121,12 +124,13 @@ extern unsigned long lastPulse = 0;
 extern unsigned long dutyCycleIncoming = 0;  // Duty Cycle % coming in from Can2Cluster or Hall
 
 // ECU variables
-extern bool vehicleEML = false;  // current EML light status
-extern bool vehicleEPC = false;  // current EPC light status
-extern bool vehicleReverse = false;
-extern bool vehiclePark = false;
-extern bool vehicleOilPressure = false;
-extern bool vehicleBattLight = false;
+extern bool vehicleEML = false;          // current EML light status
+extern bool vehicleEPC = false;          // current EPC light status
+extern bool vehiclePark = false;         // current Park status (from DSG)
+extern bool vehicleNeutral = false;      // current Neutral status (from DSG)
+extern bool vehicleReverse = false;      // current Reverse status (from DSG)
+extern bool vehicleOilPressure = false;  // current oil pressure (from Ford)
+extern bool vehicleBattLight = false;    // current battery light (from Ford)
 extern uint8_t GRA_counter = 0;
 extern uint8_t GRA_crc = 0;
 
@@ -155,7 +159,7 @@ extern bool tempShiftLight = false;
 #define MOTOR7_ID 0x588
 
 #define MOTOR_FLEX_ID 0x580
-#define GRA_ID 0x38A   
+#define GRA_ID 0x38A
 #define gear_ID 0x440  // lower 4 bits of byte 2 are gear?
 
 #define BRAKES1_ID 0x1A0
@@ -171,7 +175,7 @@ extern bool tempShiftLight = false;
 #define emeraldECU1_ID 0x1000
 #define emeraldECU2_ID 0x1001
 
-#define fordECU1_ID 0x201 
+#define fordECU1_ID 0x201
 #define fordECU2_ID 0x420
 
 // for main functions
@@ -191,6 +195,10 @@ extern void incomingHz();
 // for EEP
 extern void readEEP();
 extern void writeEEP();
+
+// for buttons
+extern void padUpFunc(void);
+extern void padDownFunc(void);
 
 // for WiFi Function Prototypes
 extern void connectWifi();

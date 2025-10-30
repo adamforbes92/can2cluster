@@ -1,6 +1,6 @@
-void padUpFunc() {
+void padUpFunc(void) {
   boolPadUp = true;
 }
-void padDownFunc() {
+void padDownFunc(void) {
   boolPadDown = true;
 }
