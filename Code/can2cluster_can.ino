@@ -58,10 +58,6 @@ void onBodyRX(const CAN_message_t& frame) {
       break;
 
     case mWaehlhebel_1_ID:
-#if serialDebugDSG
-      DEBUG_PRINTLN("From 0x540");
-      DEBUG_PRINTLN(frame.buf[7]);
-#endif
       gear_raw = ((frame.buf[7] & 0b01110000) >> 4) - 1;  // 0b01110000) >> 4) - 1;
       lever_raw = (frame.buf[7] & 0b00000001);
 
@@ -69,10 +65,10 @@ void onBodyRX(const CAN_message_t& frame) {
         gear = gear_raw;
         switch (gear) {
           case 3:  // reverse
-            vehicleReverse = true;
+            //vehicleReverse = true;
             break;
           default:
-            vehicleReverse = false;
+            //vehicleReverse = false;
             break;
         }
 
@@ -84,25 +80,30 @@ void onBodyRX(const CAN_message_t& frame) {
 
     case gearLever_ID:
       lever = (frame.buf[0] & 0b11110000) >> 4;
-#if serialDebugDSG
-      DEBUG_PRINTLN("From 0x448");
-      DEBUG_PRINTLN(frame.buf[0]);
-#endif
       switch (lever) {
         case LEVER_P:
           vehiclePark = true;
           vehicleReverse = false;
           vehicleNeutral = false;
+#if serialDebugDSG
+          DEBUG_PRINTLN("vehiclePark");
+#endif
           break;
         case LEVER_R:
           vehiclePark = false;
           vehicleReverse = true;
           vehicleNeutral = false;
+#if serialDebugDSG
+          DEBUG_PRINTLN("vehicleReverse");
+#endif
           break;
         case LEVER_N:
           vehiclePark = false;
           vehicleReverse = false;
           vehicleNeutral = true;
+#if serialDebugDSG
+          DEBUG_PRINTLN("vehicleNeutral");
+#endif
           break;
         case LEVER_D:
         case LEVER_S:
@@ -114,6 +115,9 @@ void onBodyRX(const CAN_message_t& frame) {
           vehicleNeutral = false;
           break;
       }
+
+
+      break;
 
     case emeraldECU1_ID:
       vehicleRPM = ((frame.buf[0] << 8) | frame.buf[1]);  // conversion: 0.25*HEX // this is RPM
@@ -140,7 +144,7 @@ void onBodyRX(const CAN_message_t& frame) {
       break;
   }
 
-#if serialDebug
+#if ChassisCANDebug
   Serial.println("From CAN:");
   Serial.print("vehicleRPM: ");
   Serial.println(vehicleRPM);
