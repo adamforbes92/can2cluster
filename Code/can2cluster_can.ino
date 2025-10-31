@@ -54,7 +54,9 @@ void onBodyRX(const CAN_message_t& frame) {
       break;
 
     case BRAKES3_ID:
-      absSpeed = ((frame.buf[3] << 8) | frame.buf[2]) * 1.28;  // conversion: 0.25*HEX
+      if (calcSpeed == 0) {
+        absSpeed = ((frame.buf[0] << 8) | frame.buf[1]);  // conversion: 0.25*HEX
+      }
       break;
 
     case mWaehlhebel_1_ID:
