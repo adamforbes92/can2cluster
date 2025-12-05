@@ -25,13 +25,13 @@
 #define serialDebugIO 0       // for General IO Serial feedback
 #define detailedDebugStack 0
 
-#define serialMonitorRefresh 1000
-#define eepRefresh 2000  // EEPROM save in ms
-#define labelRefresh 200
-#define broadcastSpeedRefresh 20
-#define broadcastGRARefresh 20
-#define gearPause 20  // Send packets every x ms ** CAN CHANGE THIS **
-#define rpmPause 5
+#define serialMonitorRefresh 1000  // serial monitor feedback in ms
+#define eepRefresh 2000            // EEPROM save in ms
+#define labelRefresh 200           // wifi label refresh in ms
+#define broadcastSpeedRefresh 20   // speed sending via. CAN in ms
+#define broadcastGRARefresh 20     // paddle (GRA) sending via. CAN in ms
+#define gearPause 20               // vTaskDelay (in _dsg.ino) for DSG refreshes
+#define rpmPause 5                 // vTaskDelay (in _io.ino) for RPM & Speed refreshes
 
 // setup - main inputs
 #define speedUnits 0                   // 0 = kph, 1 = mph
@@ -53,8 +53,8 @@ extern bool useEPCShiftLight = false;    // bool to use the EPC as a shift light
 extern bool useEMLShiftLight = false;    // bool to use the EML as a shift light
 
 // setup - step changes (for needle sweep)
-extern float stepRPM = 1.2;
-extern float stepSpeed = 1;
+extern uint16_t stepRPM = 120;
+extern uint16_t stepSpeed = 100;
 
 // setup - pins (output)
 #define pinRX_CAN 17   // pin output for SN65HVD230 (CAN_RX)
@@ -105,6 +105,8 @@ extern uint16_t vehicleSpeed = 0;       // current Speed for cluster
 extern uint16_t calcSpeed = 0;          // temp var for calculating speed
 extern long tempSpeed = 0;              // for testing only, set fixed speed in kmh.  Can set to 0 to speed up / slow down on repeat with testSpeed enabled
 extern long tempRPM = 0;                // for testing only, set fixed speed in kmh.  Can set to 0 to speed up / slow down on repeat with testSpeed enabled
+extern long frequencyRPM = 20;          // inital / base freq.
+extern long frequencySpeed = 20;        // inital / base freq.
 
 extern double ecuSpeed = 0;   // ECU speed (from analog speed sensor)
 extern double dsgSpeed = 0;   // DSG speed (from RPM & Gear), ratios in '_dsg.ino'
@@ -112,20 +114,17 @@ extern double gpsSpeed = 0;   // GPS speed (from '_gps.ino')
 extern double absSpeed = 0;   // ABS speed (from '_gps.ino')
 extern double hallSpeed = 0;  // current Speed.  If no CAN, this will catch dividing by zero by the map function
 
-extern bool useHall = false;
-extern bool useDSG = false;
-extern bool useGPS = false;
-extern bool useABS = false;
-extern bool coilType = true;
+extern bool rpmTrigger = true;
+extern bool speedTrigger = true;
 
 // DSG variables
-extern uint8_t gear = 0;   // current gear from DSG
-extern uint8_t lever = 0;  // shifter position
-extern uint8_t gear_raw = 0;
-extern uint8_t lever_raw = 0;
-uint32_t lastMillis = 0;      // Counter for sending frames x ms
-uint32_t lastMillis2 = 0;     // Counter for sending frames x ms
-extern uint32_t lastCAN = 0;  // last CAN message
+extern uint8_t gear = 0;       // current gear from DSG
+extern uint8_t lever = 0;      // shifter position
+extern uint8_t gear_raw = 0;   // gear 'raw' data from DSG
+extern uint8_t lever_raw = 0;  // lever 'raw' data from DSG
+uint32_t lastMillis = 0;       // Counter for sending frames x ms
+uint32_t lastMillis2 = 0;      // Counter for sending frames x ms
+extern uint32_t lastCAN = 0;   // last CAN message
 extern unsigned long lastPulse = 0;
 extern unsigned long dutyCycleIncoming = 0;  // Duty Cycle % coming in from Can2Cluster or Hall
 
@@ -137,28 +136,36 @@ extern bool vehicleNeutral = false;      // current Neutral status (from DSG)
 extern bool vehicleReverse = false;      // current Reverse status (from DSG)
 extern bool vehicleOilPressure = false;  // current oil pressure (from Ford)
 extern bool vehicleBattLight = false;    // current battery light (from Ford)
-extern uint8_t GRA_counter = 0;
-extern uint8_t GRA_crc = 0;
+extern uint8_t GRA_counter = 0;          // for paddle frames
+extern uint8_t GRA_crc = 0;              // for paddle frames
 
 // external variables / triggers
 extern bool boolPadUp = false;    // current EML light status
 extern bool boolPadDown = false;  // current EPC light status
 
-// for testing / etc
-extern bool hasError = false;
-extern bool triggerLED = false;
-extern bool selfTest = false;        // increase RPM/speed slowly, flash lights.  For debug only, disable on release! ** CAN CHANGE THIS **
-extern bool hasNeedleSweep = false;  // do needle sweep on power up? ** CAN CHANGE THIS **
-extern bool hasCAN = false;
-extern bool hasGPS = false;
-extern bool tempNeedleSweep = false;
-extern bool testSpeedo = false;  // for testing only, vary final pwmFrequency for speed - disable on release(!) ** CAN CHANGE THIS **
-extern bool testRPM = false;
-extern bool tempShiftLight = false;
-extern bool testEML = false;
-extern bool testEPC = false;
-extern bool testReverse = false;
+// for eep - settings via. WiFi
+extern bool useHall = false;  // type of speed input to use: hall sensor
+extern bool useECU = false;   // type of speed input to use: ECU via. CAN (MOTOR2_ID)
+extern bool useDSG = false;   // type of speed input to use: DSG via. CAN (parseDSG) - based on RPM/Current Gear (ratios are key!)
+extern bool useGPS = false;   // type of speed input to use: GPS Module (Neo6M)
+extern bool useABS = false;   // type of speed input to use: ABS via. CAN (BRAKES3_ID)
+extern bool coilType = true;  // has 'old' RPM output
 
+extern bool hasError = false;         // for flashing onboard LED (no CAN)
+extern bool triggerLED = false;       // bool to flipfloo LED
+extern bool selfTest = false;         // increase RPM/speed slowly, flash lights.  For debug only, disable on release!
+extern bool hasNeedleSweep = false;   // do needle sweep on power up?
+extern bool hasCAN = false;           // bool for 'has CAN' coming in
+extern bool hasGPS = false;           // bool for 'has GPS' >1 satellite
+extern bool tempNeedleSweep = false;  // bool to set flag for temp needle sweep (for testing)
+extern bool testSpeedo = false;       // for testing only, vary final pwmFrequency for speed
+extern bool testRPM = false;          // for testing only, vary final pwmFrequency for RPM
+extern bool tempShiftLight = false;   // for testing only, flash EML/EPC if set
+extern bool testEML = false;          // bool to force turn on EML
+extern bool testEPC = false;          // bool to force turn on EPC
+extern bool testReverse = false;      // bool to force turn on Reverse
+
+// for stack monitoring (tasks!)
 uint32_t stackShowState = 0;
 uint32_t stackUpdateLabels = 0;
 uint32_t stackWriteEEP = 0;
@@ -250,7 +257,7 @@ uint16_t bool_positiveOffset, int16_speedOffset, bool_shiftEML, bool_shiftEPC, b
 uint16_t int16_minSpeed, int16_maxSpeed, int16_minRPM, int16_maxRPM, int16_minHall, int16_maxHall, int16_minCAN, int16_maxCAN, int16_shiftRPM, int16_shiftFlashes;
 uint16_t int16_tempRPM;
 uint16_t int16_speedType, int16_shiftLight;
-int label_speedHall, label_speedGPS, label_speedDSG, label_speedABS, label_RPMCAN, label_hasCAN, label_hasGPS, label_paddleUp, label_paddleDown, label_reverseActive, label_emlActive, label_epcActive;
+int label_speedHall, label_speedECU, label_speedGPS, label_speedDSG, label_speedABS, label_RPMCAN, label_hasCAN, label_hasGPS, label_paddleUp, label_paddleDown, label_reverseActive, label_emlActive, label_epcActive;
 
 uint16_t graph;
 uint16_t mainTime;

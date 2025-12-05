@@ -1,6 +1,6 @@
 void setupUI() {
   ESPUI.setVerbosity(Verbosity::Quiet);  // turn off verbose debugging (Verbose for ON; Quiet for OFF)
-  ESPUI.sliderContinuous = true;               // update slider valves constantly disabled.  No need and can cause crashes
+  ESPUI.sliderContinuous = true;         // update slider valves constantly disabled.  No need and can cause crashes
 
   // create basic tab
   auto tabBasic = ESPUI.addControl(Tab, "", "Basic");
@@ -11,12 +11,12 @@ void setupUI() {
   ESPUI.addControl(Max, "", "50", Dark, int16_sweepSpeed);
 
   int16_stepRPM = ESPUI.addControl(Slider, "Rate RPM", String(stepRPM), Dark, tabBasic, generalCallback);
-  ESPUI.addControl(Min, "", "0", Dark, int16_stepRPM);
-  ESPUI.addControl(Max, "", "10", Dark, int16_stepRPM);
+  ESPUI.addControl(Min, "", "100", Dark, int16_stepRPM);
+  ESPUI.addControl(Max, "", "400", Dark, int16_stepRPM);
 
   int16_stepSpeed = ESPUI.addControl(Slider, "Rate Speed", String(stepSpeed), Dark, tabBasic, generalCallback);
-  ESPUI.addControl(Min, "", "0", Dark, int16_stepSpeed);
-  ESPUI.addControl(Max, "", "10", Dark, int16_stepSpeed);
+  ESPUI.addControl(Min, "", "100", Dark, int16_stepSpeed);
+  ESPUI.addControl(Max, "", "400", Dark, int16_stepSpeed);
 
   ESPUI.addControl(Button, "Test Needle Sweep", "Test", Dark, tabBasic, extendedCallback, (void *)11);
 
@@ -82,12 +82,14 @@ void setupUI() {
   ESPUI.addControl(Separator, "Speed Input:", "", Dark, tabIO);
   int16_speedType = ESPUI.addControl(Select, "Speed Type", "", Dark, tabIO, generalCallback);
   ESPUI.addControl(Option, "Hall Sensor", "Hall", Dark, int16_speedType);
+  ESPUI.addControl(Option, "ECU (via. CAN)", "ECU", Dark, int16_speedType);
   ESPUI.addControl(Option, "ABS (via. CAN)", "ABS", Dark, int16_speedType);
   ESPUI.addControl(Option, "DSG (via. CAN)", "DSG", Dark, int16_speedType);
   ESPUI.addControl(Option, "GPS Module", "GPS", Dark, int16_speedType);
 
   ESPUI.addControl(Separator, "Incoming Speed:", "", Dark, tabIO);
   label_speedHall = ESPUI.addControl(Label, "Hall Speed:", "0", Dark, tabIO, generalCallback);
+  label_speedECU = ESPUI.addControl(Label, "ECU Speed:", "0", Dark, tabIO, generalCallback);
   label_speedDSG = ESPUI.addControl(Label, "DSG Speed:", "0", Dark, tabIO, generalCallback);
   label_speedABS = ESPUI.addControl(Label, "ABS Speed:", "0", Dark, tabIO, generalCallback);
   label_speedGPS = ESPUI.addControl(Label, "GPS Speed:", "0", Dark, tabIO, generalCallback);
@@ -217,37 +219,48 @@ void generalCallback(Control *sender, int type) {
     case 61:
       if (sender->value == "Hall") {
         useHall = true;
+        useECU = false;
+        useDSG = false;
+        useABS = false;
+        useGPS = false;
+      }
+      if (sender->value == "ECU") {
+        useHall = false;
+        useECU = true;
         useDSG = false;
         useABS = false;
         useGPS = false;
       }
       if (sender->value == "DSG") {
         useHall = false;
+        useECU = false;
         useDSG = true;
         useABS = false;
         useGPS = false;
       }
       if (sender->value == "ABS") {
         useHall = false;
+        useECU = false;
         useDSG = false;
         useABS = true;
         useGPS = false;
       }
       if (sender->value == "GPS") {
         useHall = false;
+        useECU = false;
         useDSG = false;
         useABS = false;
         useGPS = true;
       }
       break;
 
-    case 78:
+    case 80:
       testReverse = sender->value.toInt();
       break;
-    case 81:
+    case 83:
       testEML = sender->value.toInt();
       break;
-    case 84:
+    case 86:
       testEPC = sender->value.toInt();
       break;
   }
@@ -367,6 +380,7 @@ void updateLabels(void *arg) {
     }
 
     ESPUI.updateLabel(label_speedHall, String(hallSpeed));
+    ESPUI.updateLabel(label_speedECU, String(ecuSpeed));
     ESPUI.updateLabel(label_speedGPS, String(gpsSpeed));
     ESPUI.updateLabel(label_speedDSG, String(dsgSpeed));
     ESPUI.updateLabel(label_speedABS, String(absSpeed));
@@ -380,7 +394,7 @@ void updateLabels(void *arg) {
     vehicleEML || testEML ? ESPUI.updateLabel(label_emlActive, "On") : ESPUI.updateLabel(label_emlActive, "Off");
     vehicleEPC || testEPC ? ESPUI.updateLabel(label_epcActive, "On") : ESPUI.updateLabel(label_epcActive, "Off");
 
-     if (useHall) {
+    if (useHall) {
       ESPUI.updateSelect(int16_speedType, "Hall");
     }
     if (useABS) {
@@ -392,7 +406,7 @@ void updateLabels(void *arg) {
     if (useGPS) {
       ESPUI.updateSelect(int16_speedType, "GPS");
     }
-    
+
     if (!useEMLShiftLight && !useEPCShiftLight) {
       ESPUI.updateSelect(int16_shiftLight, "None");
     }

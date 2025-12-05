@@ -31,7 +31,7 @@ void onBodyRX(const CAN_message_t& frame) {
       break;
 
     case MOTOR2_ID:
-      calcSpeed = (frame.buf[3] * 100 * 128) / 10000;
+      ecuSpeed = (frame.buf[3] * 100 * 128) / 10000;
       break;
 
     case MOTOR5_ID:

@@ -154,14 +154,17 @@ void updateSpeed(void *args) {
         if (useHall) {
           vehicleSpeed = (byte)(calcSpeed >= 255 ? 0 : calcSpeed);
         }
+        /*if (useECU) {
+          vehicleSpeed = (byte)(calcSpeed >= 255 ? 0 : calcSpeed);
+        }*/
+        if (useABS) {
+          vehicleSpeed = int(absSpeed);
+        }
         if (useDSG) {
           vehicleSpeed = int(dsgSpeed);
         }
         if (useGPS) {
           vehicleSpeed = int(gpsSpeed);
-        }
-        if (useABS) {
-          vehicleSpeed = int(absSpeed);
         }
       }
 
@@ -183,7 +186,7 @@ void updateRPM(void *args) {
     stackupdateRPM = uxTaskGetStackHighWaterMark(NULL);  // for capturing how much memory the task is using
 #endif
     if (!tempNeedleSweep) {  // only here if tested in WiFi
-      if (testRPM) {  // set vehicleRPM is testing or not
+      if (testRPM) {         // set vehicleRPM is testing or not
         vehicleRPM = tempRPM;
       } else {
         vehicleRPM = vehicleRPMCAN;
@@ -207,27 +210,29 @@ void needleSweep() {
   // ramp up
   for (int i = 0; i < maxRPM; i++) {
 #if serialDebugIO
-    DEBUG("stepSpeed: %d", int(i * stepSpeed));
-    DEBUG("stepRPM: %d", int(i * stepRPM));
+    DEBUG("stepSpeed: %d", int(i * (stepSpeed / 100)));
+    DEBUG("stepRPM: %d", int(i * (stepRPM / 100)));
 #endif
-    setFrequencySpeed(i * stepSpeed);
-    setFrequencyRPM(i * stepRPM);
+    setFrequencySpeed((i * stepSpeed) / 100);
+    setFrequencyRPM((i * stepRPM) / 100);
+
     delay(sweepSpeed);
   }
-  delay(sweepSpeed);
+  delay(sweepSpeed * 2);
 
   // ramp down
   for (int i = maxRPM; i > 0; i--) {  // set at >0 to stop the needle 'bouncing' when it returns to zero
 #if serialDebugIO
-    DEBUG("stepSpeed: %d", int(i * stepSpeed));
-    DEBUG("stepRPM: %d", int(i * stepRPM));
+    DEBUG("stepSpeed: %d", int(i * (stepSpeed / 100)));
+    DEBUG("stepRPM: %d", int(i * (stepRPM / 100)));
 #endif
-    setFrequencySpeed(i * stepSpeed);
-    setFrequencyRPM(i * stepRPM);
+    setFrequencySpeed((i * stepSpeed) / 100);
+    setFrequencyRPM((i * stepRPM) / 100);
     delay(sweepSpeed);
   }
 
-  delay(sweepSpeed);  // hold at max RPM (to stop immediate return)
+  setFrequencySpeed(10);
+  delay(sweepSpeed * 2);  // hold at max RPM (to stop immediate return)
 
   frequencyRPM = 0;
   frequencySpeed = 0;
@@ -336,4 +341,6 @@ void incomingHz() {                                               // Interrupt 0
   dutyCycleIncoming = (60000000UL / revolutionTime) / 60;         // calculate
   previousMicros = presentMicros;
   lastPulse = millis();
+
+  hallSpeed = map(dutyCycleIncoming, 0, maxFreqHall, 0, maxSpeed);  // map incoming range to this codes range.  Max Hz should match Max Speed - i.e., 200Hz = 200kmh, or 500Hz = 200kmh...
 }

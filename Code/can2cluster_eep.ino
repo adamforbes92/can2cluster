@@ -5,6 +5,7 @@ void readEEP() {
 
   // use ESP32's 'Preferences' to remember settings.  Begin by opening the various types.  Use 'false' for read/write.  True just gives read access
   pref.begin("useHall", false);
+  pref.begin("useECU", false);
   pref.begin("useDSG", false);
   pref.begin("useGPS", false);
   pref.begin("useABS", false);
@@ -32,6 +33,7 @@ void readEEP() {
     DEBUG_PRINTLN(pref.getUChar("useHall"));
 #endif
     pref.putBool("useHall", useHall);
+    pref.putBool("useECU", useECU);
     pref.putBool("useDSG", useDSG);
     pref.putBool("useGPS", useGPS);
     pref.putBool("useABS", useABS);
@@ -55,6 +57,7 @@ void readEEP() {
   } else {
 
     useHall = pref.getBool("useHall", true);
+    useECU = pref.putBool("useECU", false);
     useDSG = pref.getBool("useDSG", false);
     useGPS = pref.getBool("useGPS", false);
     useABS = pref.getBool("useABS", false);
@@ -94,6 +97,7 @@ void writeEEP(void *args) {
 
     // update EEP only if changes have been made
     pref.putBool("useHall", useHall);
+    pref.putBool("useECU", useECU);
     pref.putBool("useDSG", useDSG);
     pref.putBool("useGPS", useGPS);
     pref.putBool("useABS", useABS);

@@ -1,20 +1,27 @@
 /* 
 CAN-BUS converter to Digital Output.  Used for MK2/MK3 'analog' clusters in ME7.x and aftermarket conversions and will provide an EML/EPC light.
 All outputs are configurable 12v Square Wave with definable max limits based on x RPM / Speed etc.  All outputs are 200mA max(!).  Reverse is MOSFET and 5A max(!).
-Supports GPS for speed
+
+Main features:
+> 12v Positive output for reverse light (5A max!)
+> RPM/Speed/EML/EPC outputs (200mA max!)
+> DSG Paddles (ground to activate)
+> Needle sweep & shift light
+> WiFi config.
 
 Forbes-Automotive, 2025
 */
 
+#include "can2cluster_defs.h"
+
 // for CAN
-#include "can2clusterTasks_defs.h"
 ESP32_CAN<RX_SIZE_256, TX_SIZE_16> chassisCAN;
 
 // for GPS
 SoftwareSerial ss(pinRX_GPS, pinTX_GPS);
 TinyGPSPlus gps;
 
-// for tickers
+// for EEPROM
 Preferences pref;
 
 // for inputs / paddles
@@ -24,11 +31,6 @@ InterruptButton btnPadDown(pinPaddleDown, LOW, GPIO_MODE_INPUT, 1000, 500, 750, 
 // define two hardware timers for RPM & Speed outputs
 hw_timer_t* timer0 = NULL;
 hw_timer_t* timer1 = NULL;
-
-bool rpmTrigger = true;
-bool speedTrigger = true;
-long frequencyRPM = 20;    // 20 to 20000
-long frequencySpeed = 20;  // 20 to 20000
 
 //if (1) {  // This contains all the timers/Hz/Freq. stuff.  Literally in a //(1) to let Arduino IDE code-wrap all this...
 // timer for RPM
