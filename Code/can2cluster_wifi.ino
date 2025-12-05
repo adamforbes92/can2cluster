@@ -397,6 +397,9 @@ void updateLabels(void *arg) {
     if (useHall) {
       ESPUI.updateSelect(int16_speedType, "Hall");
     }
+    if (useECU) {
+      ESPUI.updateSelect(int16_speedType, "ECU");
+    }
     if (useABS) {
       ESPUI.updateSelect(int16_speedType, "ABS");
     }

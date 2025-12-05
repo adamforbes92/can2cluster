@@ -152,11 +152,11 @@ void updateSpeed(void *args) {
         vehicleSpeed = tempSpeed;
       } else {
         if (useHall) {
+          vehicleSpeed = hallSpeed;
+        }
+        if (useECU) {
           vehicleSpeed = (byte)(calcSpeed >= 255 ? 0 : calcSpeed);
         }
-        /*if (useECU) {
-          vehicleSpeed = (byte)(calcSpeed >= 255 ? 0 : calcSpeed);
-        }*/
         if (useABS) {
           vehicleSpeed = int(absSpeed);
         }

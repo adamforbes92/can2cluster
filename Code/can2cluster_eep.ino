@@ -57,7 +57,7 @@ void readEEP() {
   } else {
 
     useHall = pref.getBool("useHall", true);
-    useECU = pref.putBool("useECU", false);
+    useECU = pref.getBool("useECU", false);
     useDSG = pref.getBool("useDSG", false);
     useGPS = pref.getBool("useGPS", false);
     useABS = pref.getBool("useABS", false);
