@@ -1,27 +1,37 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/semphr.h"
+
 #include <TinyGPSPlus.h>     // included for GPS
 #include <SoftwareSerial.h>  // included for GPS
-#include "TickTwo.h"         // for repeated tasks
 #include <ESP32_CAN.h>       // included for CAN
 #include <Preferences.h>     // for eeprom/remember settings
 #include <ESPUI.h>           // included for WiFi pages
 #include <WiFi.h>            // included for WiFi pages
 #include <ESPmDNS.h>         // included for WiFi pages
-//#include <ButtonLib.h>       // included for paddles
-//#include <ElegantOTA.h>
 #include "InterruptButton.h"
 
 /* Defines */
 // Debug statements
-#define serialDebug 1         // if 1, will use Serial talkback ** CAN CHANGE THIS **
-#define ChassisCANDebug 1     // if 1, will print CAN 2 (Chassis) messages ** CAN CHANGE THIS **
+#define serialDebug 0         // if 1, will use Serial talkback ** CAN CHANGE THIS **
+#define ChassisCANDebug 0     // if 1, will print CAN 2 (Chassis) messages ** CAN CHANGE THIS **
 #define serialDebugWifi 0     // for wifi feedback
 #define serialDebugEEP 0      // for EEP Serial feedback
 #define serialDebugGPS 0      // for GPS Serial feedback
-#define serialDebugPaddles 1  // for Paddle Serial feedback
-#define serialDebugDSG 1      // for DSG Serial feedback
+#define serialDebugPaddles 0  // for Paddle Serial feedback
+#define serialDebugDSG 0      // for DSG Serial feedback
 #define serialDebugIO 0       // for General IO Serial feedback
-#define eepRefresh 2000       // EEPROM save in ms
-#define wifiDisable 60000     // turn off WiFi in ms - check for 0 connections after 60s and disable WiFi - burning power otherwise
+#define detailedDebugStack 0
+
+#define serialMonitorRefresh 1000
+#define eepRefresh 2000  // EEPROM save in ms
+#define labelRefresh 200
+#define broadcastSpeedRefresh 20
+#define broadcastGRARefresh 20
+#define gearPause 20  // Send packets every x ms ** CAN CHANGE THIS **
+#define rpmPause 5
 
 // setup - main inputs
 #define speedUnits 0                   // 0 = kph, 1 = mph
@@ -79,17 +89,13 @@ extern float stepSpeed = 1;
 #define LEVER_TIPTRONIC_ON 0xE    // tiptronic active
 #define LEVER_TIPTRONIC_UP 0xA    // tiptronic up
 #define LEVER_TIPTRONIC_DOWN 0xB  // tiptronic down
-#define gearPause 20              // Send packets every x ms ** CAN CHANGE THIS **
-#define rpmPause 5
 
 #ifdef serialDebug
-#define DEBUG_PRINT(x) Serial.print(x)
-#define DEBUG_PRINTLN(x) Serial.println(x)
-#define DEBUG_PRINTF(x...) Serial.printf(x)
+#define DEBUG(x, ...) Serial.printf(x "\n", ##__VA_ARGS__)
+#define DEBUG_(x, ...) Serial.printf(x, ##__VA_ARGS__)
 #else
-#define DEBUG_PRINT(x)
-#define DEBUG_PRINTLN(x)
-#define DEBUG_PRINTF(x...)
+#define DEBUG(x, ...)
+#define DEBUG_(x, ...)
 #endif
 
 extern uint8_t vehicleCoolantTemp = 0;  // for vehicle coolant temp
@@ -149,6 +155,23 @@ extern bool tempNeedleSweep = false;
 extern bool testSpeedo = false;  // for testing only, vary final pwmFrequency for speed - disable on release(!) ** CAN CHANGE THIS **
 extern bool testRPM = false;
 extern bool tempShiftLight = false;
+extern bool testEML = false;
+extern bool testEPC = false;
+extern bool testReverse = false;
+
+uint32_t stackShowState = 0;
+uint32_t stackUpdateLabels = 0;
+uint32_t stackWriteEEP = 0;
+
+uint32_t stackbroadcastGRA = 0;
+uint32_t stackbroadcastSpeed = 0;
+uint32_t stackparseGPS = 0;
+uint32_t stackparseDSG = 0;
+
+uint32_t stackupdateSpeed = 0;
+uint32_t stackupdateRPM = 0;
+uint32_t stackshiftLight = 0;
+uint32_t stackcheckError = 0;
 
 // define CAN Addresses.  All not req. but here for keepsakes
 #define MOTOR1_ID 0x280
@@ -196,6 +219,10 @@ extern void incomingHz();
 extern void readEEP();
 extern void writeEEP();
 
+// for tasks
+extern void setupTasks();
+extern void showState();
+
 // for buttons
 extern void padUpFunc(void);
 extern void padDownFunc(void);
@@ -219,11 +246,11 @@ extern void updateLabels();
 uint16_t bool_NeedleSweep, int16_sweepSpeed, int16_stepSpeed, int16_stepRPM;
 uint16_t bool_testSpeedo, int16_tempSpeed, bool_useDSG, bool_useGPS, bool_useHall, bool_useABS, bool_testRPM;
 
-uint16_t bool_positiveOffset, int16_speedOffset, bool_shiftEML, bool_shiftEPC, bool_coilType;
-uint16_t int16_minSpeed, int16_maxSpeed, int16_minHall, int16_maxHall, int16_minCAN, int16_maxCAN, int16_shiftRPM, int16_shiftFlashes;
-uint16_t int16_minRPM, int16_maxRPM, int16_tempRPM, int16_clusterRPM, int16_RPMScaling;
+uint16_t bool_positiveOffset, int16_speedOffset, bool_shiftEML, bool_shiftEPC, bool_coilType, bool_testreverse, bool_testeml, bool_testepc;
+uint16_t int16_minSpeed, int16_maxSpeed, int16_minRPM, int16_maxRPM, int16_minHall, int16_maxHall, int16_minCAN, int16_maxCAN, int16_shiftRPM, int16_shiftFlashes;
+uint16_t int16_tempRPM;
 uint16_t int16_speedType, int16_shiftLight;
-int label_speedHall, label_speedGPS, label_speedDSG, label_speedABS, label_RPMCAN, label_hasCAN, label_hasGPS, label_paddleUp, label_paddleDown, label_reverseActive;
+int label_speedHall, label_speedGPS, label_speedDSG, label_speedABS, label_RPMCAN, label_hasCAN, label_hasGPS, label_paddleUp, label_paddleDown, label_reverseActive, label_emlActive, label_epcActive;
 
 uint16_t graph;
 uint16_t mainTime;

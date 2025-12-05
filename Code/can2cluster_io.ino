@@ -5,40 +5,40 @@ void basicInit() {
 #if serialDebug || serialDebugWifi || serialDebugEEP || serialDebugGPS || ChassisCANDebug || serialDebugPaddles || serialDebugIO
   Serial.begin(baudSerial);
   delay(500);
-  DEBUG_PRINTLN("CAN-BUS to Cluster Initialising...");
+  DEBUG("CAN-BUS to Cluster Initialising...");
 #endif
 
 #if serialDebug
-  DEBUG_PRINTLN("Reading EEPROM...");
+  DEBUG("Reading EEPROM...");
 #endif
   readEEP();  // read EEPROM
 #if serialDebug
-  DEBUG_PRINTLN("Read EEPROM!");
+  DEBUG("Read EEPROM!");
 #endif
 
   ss.begin(baudGPS);  // begin GPS Module
 #if serialDebugGPS
-  Serial.println(TinyGPSPlus::libraryVersion());
-  Serial.println(F("Sats HDOP  Latitude   Longitude   Fix  Date       Time     Date Alt    Course Speed Card  Distance Course Card  Chars Sentences Checksum"));
-  Serial.println(F("           (deg)      (deg)       Age                      Age  (m)    --- from GPS ----  ---- to London  ----  RX    RX        Fail"));
-  Serial.println(F("----------------------------------------------------------------------------------------------------------------------------------------"));
+  DEBUG(TinyGPSPlus::libraryVersion());
+  DEBUG("Sats HDOP  Latitude   Longitude   Fix  Date       Time     Date Alt    Course Speed Card  Distance Course Card  Chars Sentences Checksum");
+  DEBUG("           (deg)      (deg)       Age                      Age  (m)    --- from GPS ----  ---- to London  ----  RX    RX        Fail");
+  DEBUG("----------------------------------------------------------------------------------------------------------------------------------------");
 #endif
 
 #if serialDebug
-  Serial.println(F("Setting up IO (pins & buttons)..."));
+  DEBUG("Setting up IO (pins & buttons)...");
 #endif
   setupPins();     // begin IO
   setupButtons();  // setup buttons for interrupt
 #if serialDebug
-  DEBUG_PRINTLN("Setup IO Complete!");
+  DEBUG("Setup IO Complete!");
 #endif
 
 #if serialDebug
-  DEBUG_PRINTLN("CAN Chip Initialising...");
+  DEBUG("CAN Chip Initialising...");
 #endif
   canInit();  // initialise the CAN chip
 #if serialDebug
-  Serial.println(F("CAN Chip Initialised!"));
+  DEBUG("CAN Chip Initialised!");
 #endif
 }
 
@@ -54,8 +54,6 @@ void setupPins() {
   pinMode(pinCoil, OUTPUT);  // for high-voltage RPM (can be turned on/off in WiFi so always enable regardless)
   pinMode(pinRPM, OUTPUT);   // for standard square wave RPM
 
-  //pinMode(pinPaddleUp, INPUT);                                                 // for DSG paddle up - pull to ground
-  //pinMode(pinPaddleDown, INPUT);                                               // for DSG paddles down - pull to ground
   attachInterrupt(digitalPinToInterrupt(pinHallSensor), incomingHz, FALLING);  //setup interrupt to toggle pin on change
 }
 
@@ -72,6 +70,132 @@ void setupButtons() {
   btnPadDown.setMode(Mode_Asynchronous);
 }
 
+void setupTasks() {
+  xTaskCreate(showState, "showState", 8000, NULL, 1, NULL);
+  xTaskCreate(updateLabels, "updateLabels", 8000, NULL, 3, NULL);
+  xTaskCreate(writeEEP, "writeEEP", 2000, NULL, 4, NULL);
+
+  xTaskCreate(broadcastGRA, "broadcastGRA", 4000, NULL, 5, NULL);
+  xTaskCreate(broadcastSpeed, "broadcastSpeed", 4000, NULL, 6, NULL);
+
+  xTaskCreate(parseGPS, "parseGPS", 6000, NULL, 7, NULL);
+  xTaskCreate(parseDSG, "parseDSG", 6000, NULL, 8, NULL);
+
+  xTaskCreate(updateSpeed, "updateSpeed", 2000, NULL, 9, NULL);
+  xTaskCreate(updateRPM, "updateRPM", 2000, NULL, 10, NULL);
+
+  xTaskCreate(checkError, "checkError", 2000, NULL, 11, NULL);
+}
+
+void showState(void *arg) {
+  while (1) {
+//stackshowHaldexState = uxTaskGetStackHighWaterMark(NULL);
+#if detailedDebugStack
+    stackShowState = uxTaskGetStackHighWaterMark(NULL);  // for capturing how much memory the task is using
+#endif
+
+#if detailedDebugStack
+    DEBUG("Stack Sizes:");
+    DEBUG("    stackShowState: %d", stackShowState);        // incrememting value for checking the response to vars...
+    DEBUG("    stackUpdateLabels: %d", stackUpdateLabels);  // incrememting value for checking the response to vars...
+
+    DEBUG("    stackWriteEEP: %d", stackWriteEEP);  // incrememting value for checking the response to vars...
+
+    DEBUG("    stackbroadcastGRA: %d", stackbroadcastGRA);      // incrememting value for checking the response to vars...
+    DEBUG("    stackbroadcastSpeed: %d", stackbroadcastSpeed);  // incrememting value for checking the response to vars...
+    DEBUG("    stackparseGPS: %d", stackparseGPS);              // incrememting value for checking the response to vars...
+    DEBUG("    stackparseDSG: %d", stackparseDSG);              // incrememting value for checking the response to vars...
+
+    DEBUG("    stackupdateSpeed: %d", stackupdateSpeed);  // incrememting value for checking the response to vars...
+    DEBUG("    stackupdateRPM: %d", stackupdateRPM);      // incrememting value for checking the response to vars...
+    DEBUG("    stackshiftLight: %d", stackshiftLight);    // incrememting value for checking the response to vars...
+
+    DEBUG("    stackcheckError: %d", stackcheckError);  // incrememting value for checking the response to vars...
+#endif
+
+#if ChassisCANDebug
+    DEBUG("From CAN:");
+    DEBUG("  vehicleRPM: %d", vehicleRPM);
+    DEBUG("  vehicleSpeed: %d", vehicleSpeed);
+    DEBUG("  vehicleReverse: %d", vehicleReverse);
+    DEBUG("  vehicleEML: %d", vehicleEML);
+    DEBUG("  vehicleEPC: %d", vehicleEPC);
+#endif
+
+#if serialDebugGPS
+    DEBUG("From GPS:");
+    DEBUG("  Satellites: %d", gps.satellites.value());
+    DEBUG("  gpsSpeed: %d", gpsSpeed);
+#endif
+
+#if serialDebugIO
+    DEBUG("Speeds:");
+    DEBUG("  hallSpeed: %d", dutyCycleIncoming);
+    DEBUG("  ecuSpeed: %d", calcSpeed);
+    DEBUG("  dsgSpeed: %d", dsgSpeed);
+    DEBUG("  gpsSpeed: %d", gpsSpeed);
+    DEBUG("  absSpeed: %d", absSpeed);
+#endif
+
+    vTaskDelay(serialMonitorRefresh / portTICK_PERIOD_MS);
+  }
+}
+
+void updateSpeed(void *args) {
+  while (1) {
+#if detailedDebugStack
+    stackupdateSpeed = uxTaskGetStackHighWaterMark(NULL);  // for capturing how much memory the task is using
+#endif
+
+    if (!tempNeedleSweep) {  // only here if tested in WiFi
+      if (testSpeedo) {
+        vehicleSpeed = tempSpeed;
+      } else {
+        if (useHall) {
+          vehicleSpeed = (byte)(calcSpeed >= 255 ? 0 : calcSpeed);
+        }
+        if (useDSG) {
+          vehicleSpeed = int(dsgSpeed);
+        }
+        if (useGPS) {
+          vehicleSpeed = int(gpsSpeed);
+        }
+        if (useABS) {
+          vehicleSpeed = int(absSpeed);
+        }
+      }
+
+      if (speedUnits == 1) {
+        vehicleSpeed = int((vehicleSpeed * mphFactor) / 1000000);  //621371
+      }
+
+      // calculate final frequency:
+      frequencySpeed = map(vehicleSpeed, 0, maxSpeed, 0, maxSpeed);
+      setFrequencySpeed(frequencySpeed);  // minimum speed may command 0 and setFreq. will cause crash, so +1 to error 'catch'  }
+    }
+    vTaskDelay(rpmPause / portTICK_PERIOD_MS);
+  }
+}
+
+void updateRPM(void *args) {
+  while (1) {
+#if detailedDebugStack
+    stackupdateRPM = uxTaskGetStackHighWaterMark(NULL);  // for capturing how much memory the task is using
+#endif
+    if (!tempNeedleSweep) {  // only here if tested in WiFi
+      if (testRPM) {  // set vehicleRPM is testing or not
+        vehicleRPM = tempRPM;
+      } else {
+        vehicleRPM = vehicleRPMCAN;
+      }
+
+      frequencyRPM = map(vehicleRPM, 0, clusterRPMLimit, 0, maxRPM);
+      setFrequencyRPM(frequencyRPM);  // minimum speed may command 0 and setFreq. will cause crash, so +1 to error 'catch'
+    }
+    vTaskDelay(rpmPause / portTICK_PERIOD_MS);
+  }
+}
+
 void needleSweep() {
   frequencyRPM = 0;
   frequencySpeed = 0;
@@ -80,12 +204,12 @@ void needleSweep() {
 
   delay(sweepSpeed);
 
-#if serialDebug
-  Serial.println(F("Starting needle sweep..."));
-#endif
-
   // ramp up
   for (int i = 0; i < maxRPM; i++) {
+#if serialDebugIO
+    DEBUG("stepSpeed: %d", int(i * stepSpeed));
+    DEBUG("stepRPM: %d", int(i * stepRPM));
+#endif
     setFrequencySpeed(i * stepSpeed);
     setFrequencyRPM(i * stepRPM);
     delay(sweepSpeed);
@@ -94,6 +218,10 @@ void needleSweep() {
 
   // ramp down
   for (int i = maxRPM; i > 0; i--) {  // set at >0 to stop the needle 'bouncing' when it returns to zero
+#if serialDebugIO
+    DEBUG("stepSpeed: %d", int(i * stepSpeed));
+    DEBUG("stepRPM: %d", int(i * stepRPM));
+#endif
     setFrequencySpeed(i * stepSpeed);
     setFrequencyRPM(i * stepRPM);
     delay(sweepSpeed);
@@ -107,10 +235,6 @@ void needleSweep() {
   setFrequencySpeed(frequencySpeed);
 
   delay(sweepSpeed);
-
-#if serialDebug
-  Serial.println(F("Finished needle sweep!"));
-#endif
 }
 
 void blinkLED(int duration, int flashes, bool boolEPC, bool boolEML, bool boolRPM, bool boolSpeed) {
@@ -161,17 +285,24 @@ void diagTest() {
   blinkLED(1000, 1, 1, 1, 0, 0);
 }
 
-void checkError() {
-  if (hasError) {
-    triggerLED = !triggerLED;
-  } else {
-    triggerLED = false;
-  }
+void checkError(void *args) {
+  while (1) {
+#if detailedDebugStack
+    stackcheckError = uxTaskGetStackHighWaterMark(NULL);  // for capturing how much memory the task is using
+#endif
 
-  if (triggerLED) {
-    digitalWrite(onboardLED, HIGH);  // turn internal LED on
-  } else {
-    digitalWrite(onboardLED, LOW);  // turn internal LED off
+    if (hasError) {
+      triggerLED = !triggerLED;
+    } else {
+      triggerLED = false;
+    }
+
+    if (triggerLED) {
+      digitalWrite(onboardLED, HIGH);  // turn internal LED on
+    } else {
+      digitalWrite(onboardLED, LOW);  // turn internal LED off
+    }
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
   }
 }
 

@@ -82,37 +82,44 @@ void readEEP() {
 #endif
 }
 
-void writeEEP() {
+void writeEEP(void *args) {
+  while (1) {
 #if serialDebugEEP
-  DEBUG_PRINTLN("Writing EEPROM...");
+    DEBUG_PRINTLN("Writing EEPROM...");
 #endif
 
-  // update EEP only if changes have been made
-  pref.putBool("useHall", useHall);
-  pref.putBool("useDSG", useDSG);
-  pref.putBool("useGPS", useGPS);
-  pref.putBool("useABS", useABS);
-  pref.putBool("coilType", coilType);
-  pref.putBool("useEMLLight", useEMLShiftLight);
-  pref.putBool("useEPCLight", useEPCShiftLight);
+#if detailedDebugStack
+    stackWriteEEP = uxTaskGetStackHighWaterMark(NULL);  // for capturing how much memory the task is using
+#endif
 
-  pref.putBool("hasNeedleSweep", hasNeedleSweep);
+    // update EEP only if changes have been made
+    pref.putBool("useHall", useHall);
+    pref.putBool("useDSG", useDSG);
+    pref.putBool("useGPS", useGPS);
+    pref.putBool("useABS", useABS);
+    pref.putBool("coilType", coilType);
+    pref.putBool("useEMLLight", useEMLShiftLight);
+    pref.putBool("useEPCLight", useEPCShiftLight);
 
-  pref.putUShort("clusterRPMLimit", clusterRPMLimit);
-  pref.putUShort("shiftLimit", shiftLimit);
-  pref.putUChar("shiftFlashes", shiftFlashes);
-  pref.putUChar("sweepSpeed", sweepSpeed);
-  pref.putUShort("maxSpeed", maxSpeed);
-  pref.putUShort("maxRPM", maxRPM);
-  pref.putUShort("maxFreqHall", maxFreqHall);
+    pref.putBool("hasNeedleSweep", hasNeedleSweep);
 
-  pref.putUShort("stepRPM", stepRPM);
-  pref.putUShort("stepSpeed", stepSpeed);
+    pref.putUShort("clusterRPMLimit", clusterRPMLimit);
+    pref.putUShort("shiftLimit", shiftLimit);
+    pref.putUChar("shiftFlashes", shiftFlashes);
+    pref.putUChar("sweepSpeed", sweepSpeed);
+    pref.putUShort("maxSpeed", maxSpeed);
+    pref.putUShort("maxRPM", maxRPM);
+    pref.putUShort("maxFreqHall", maxFreqHall);
+
+    pref.putUShort("stepRPM", stepRPM);
+    pref.putUShort("stepSpeed", stepSpeed);
 
 #if serialDebugEEP
-  DEBUG_PRINTLN("Written EEPROM with data:");
-  DEBUG_PRINTLN(useEMLShiftLight);
-  DEBUG_PRINTLN(useEPCShiftLight);
-  DEBUG_PRINTLN(shiftLimit);
+    DEBUG_PRINTLN("Written EEPROM with data:");
+    DEBUG_PRINTLN(useEMLShiftLight);
+    DEBUG_PRINTLN(useEPCShiftLight);
+    DEBUG_PRINTLN(shiftLimit);
 #endif
+    vTaskDelay(eepRefresh / portTICK_PERIOD_MS);
+  }
 }

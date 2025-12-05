@@ -1,26 +1,23 @@
-void parseGPS() {
-  while (ss.available() > 0) {
-    gps.encode(ss.read());
-  }
-
-  if (gps.satellites.value() == 0) {
-    hasGPS = false;
-  } else {
-    hasGPS = true;
-  }
-
-  if (gps.speed.isUpdated()) {
-    gpsSpeed = int(gps.speed.kmph());  // * 0.621371;  // factor for converting kmh > mph
-#if serialDebugGPS
-    Serial.println(gps.satellites.value());
-    Serial.println(gps.hdop.hdop());
-
-    printFloat(gps.location.lat(), gps.location.isValid(), 11, 6);
-    printFloat(gps.location.lng(), gps.location.isValid(), 12, 6);
-
-    Serial.print(F("GPS Speed: "));
-    Serial.println(gpsSpeed);
+void parseGPS(void *args) {
+  while (1) {
+    #if detailedDebugStack
+    stackparseGPS = uxTaskGetStackHighWaterMark(NULL);  // for capturing how much memory the task is using
 #endif
+    while (ss.available() > 0) {
+      gps.encode(ss.read());
+    }
+
+    if (gps.satellites.value() == 0) {
+      hasGPS = false;
+    } else {
+      hasGPS = true;
+    }
+
+    if (gps.speed.isUpdated()) {
+      gpsSpeed = int(gps.speed.kmph());  // * 0.621371;  // factor for converting kmh > mph
+
+    }
+    vTaskDelay(eepRefresh / portTICK_PERIOD_MS);
   }
 }
 

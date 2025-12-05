@@ -16,4 +16,6 @@ V1.11 - added Ford details - thanks to Jamie(!)
 V1.12 - added MPH conversion
 V1.13 - added DSG Up/Down paddles & DSG gear logging
 V1.14 - changed button library to ESP32 Interrupt Button to make paddles faster
+V1.15 - moved everything to tasks
+V1.16 - added test output functionaility - for Reverse/EML/EPC etc
 */
