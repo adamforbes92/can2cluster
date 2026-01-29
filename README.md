@@ -6,7 +6,7 @@ The code is based on an ESP32, and will capture incoming CAN messages and conver
 
 Alternative setups and CAN IDs can be added and would allow custom features - like a 'Park' light to be added.
 
-DSG gearboxes are supported and speed is currently calculated using the current gear value and RPM.  UDS would be a neat feature if it can be implemented!
+DSG gearboxes are supported and speed is currently calculated using the current gear value and RPM.  KWP2000/UDS would be a neat feature if it can be implemented!
 
 If no speed is available (from either hall or CAN), an optional GPS module (like the Neo6M) can be used to capture speed via. GPS.  This can be broadcast via. CAN if required - users should know the ID they would like it broadcast to.  A reminder that GPS modules need to see the sky and depending on installation location may need an external aerial to be fitted.  It uses a standard connector.
 
@@ -49,6 +49,31 @@ Reverse (5A max.)
 Shift Light (RPM vs. EML/EPC)
 Needle Sweep
 ```
+
+### Pinout
+The MX23A18 connector pinout is:
+![Board Overview](/Images/BoardConnector.png)
+
+| Pin/ | Signal | Notes |
+|-----|--------|-------|
+| 1 | Vign | 12 V Ignition |
+| 2 | Ground/MALT | — |
+| 3 | Chassis CAN Low | to Chassis/ECU side |
+| 4 | Chassis CAN High | to Chassis/ECU side |
+| 5 | Speed | Speed output; pull-down |
+| 6 | RPM | RPM output; pull-down |
+| 7 | EML | Engine Management Light; pull-down |
+| 8 | EPC | Electronic Pedal Control Light; pull-down |
+| 9 | Reverse | 12v high-side reverse output; 5A max |
+| 10 | Paddle Up | +12v to activate |
+| 11 | Paddle Down | Gen1 differentials ONLY |
+| 12 | Hall Speed | +12v to activate |
+| 13 | N/A | Not used |
+| 14 | N/A | Not used |
+| 15 | N/A | Not used |
+| 16 | N/A | Not used |
+| 17 | N/A | Not used |
+| 18 | RPM | High voltage coil pulse; MK1/MK2 etc |
 
 ## Setup
 Purchased modules will come pre-loaded with the most recent firmware, check back here for updates.  
