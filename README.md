@@ -18,6 +18,9 @@ This can be expanded to support other marques and is actively encouraged.  Other
 
 ![Board Overview](/Images/BoardOverview.png)
 
+### Purchase
+If you want to purchase an assembled Can2Cluster, you can do so here: [Can2Cluster - Forbes Automotive](https://forbes-automotive.com/products/can2cluster)
+
 ## IO
 Can2Cluster uses an 18-pin MX23A18 connector and features the following IO:
 
