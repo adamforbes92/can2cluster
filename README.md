@@ -73,17 +73,25 @@ The MX23A18 connector pinout is:
 Purchased modules will come pre-loaded with the most recent firmware, check back here for updates.  
 
 > Connect the module as per the wiring diagram
+
 > On initial power up, WiFi is available for the first 60 seconds - if there are no connections it will be turned back off to save power
+
 > Connect to the device and search for '192.168.1.1' in a browser
+
 > Configure the device to suit: Needle Sweep, Sweep Rate, RPM Type, Shift Light
+
 > Use the 'IO' tab to confirm incoming data
 
 ### WiFi Setup
 Multiple options are available in WiFi:
 > Needle Sweep (rate adjustable)
+
 > RPM Output Selection
+
 > Shift light outputs (EML/EPC or both)
+
 > Park Lock Release (for DSG)
+
 > Speed Selection (Hall/ECU/ABS/DSG/GPS)
 
 ![WiFi1](/Images/WiFi1.jpg)
