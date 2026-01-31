@@ -24,7 +24,7 @@ double dq250_gear_ratio(uint8_t gear) {
       return 1.0;
   }
 
-  /* alterative ratios
+/* alterative ratios
     switch (gear) {
     case 1:
       return 2.93;
@@ -62,28 +62,21 @@ double dq250_speed(uint16_t rpm_in, uint8_t gear) {
   return vehicleSpeedTemp > 10 ? vehicleSpeedTemp : 1;  // ignore below 10km/h
 }
 
-void parseDSG(void *args) {
-  while (1) {
-#if detailedDebugStack
-    stackparseDSG = uxTaskGetStackHighWaterMark(NULL);  // for capturing how much memory the task is using
-#endif
-
-    if (vehicleRPM != 0 && gear != 0) {
-      switch (lever) {
-        case LEVER_D:
-        case LEVER_S:
-        case LEVER_TIPTRONIC_ON:
-        case LEVER_TIPTRONIC_UP:
-        case LEVER_TIPTRONIC_DOWN:
-          dsgSpeed = dq250_speed(vehicleRPM, gear);
-          break;
-        case LEVER_P:
-          dsgSpeed = 0;
-        default:
-          dsgSpeed = 0;
-          break;
-      }
+void parseDSG() {
+  if (vehicleRPMCAN != 0 && gear != 0) {
+    switch (lever) {
+      case LEVER_D:
+      case LEVER_S:
+      case LEVER_TIPTRONIC_ON:
+      case LEVER_TIPTRONIC_UP:
+      case LEVER_TIPTRONIC_DOWN:
+        dsgSpeed = dq250_speed(vehicleRPMCAN, gear);
+        break;
+      case LEVER_P:
+        dsgSpeed = 0;
+      default:
+        dsgSpeed = 0;
+        break;
     }
-    vTaskDelay(gearPause / portTICK_PERIOD_MS);
   }
 }

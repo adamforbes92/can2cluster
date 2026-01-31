@@ -1,8 +1,7 @@
-void parseGPS(void *args) {
+void parseGPS(void *arg) {
   while (1) {
-    #if detailedDebugStack
-    stackparseGPS = uxTaskGetStackHighWaterMark(NULL);  // for capturing how much memory the task is using
-#endif
+    stackparseGPS = uxTaskGetStackHighWaterMark(NULL);
+
     while (ss.available() > 0) {
       gps.encode(ss.read());
     }
@@ -15,9 +14,8 @@ void parseGPS(void *args) {
 
     if (gps.speed.isUpdated()) {
       gpsSpeed = int(gps.speed.kmph());  // * 0.621371;  // factor for converting kmh > mph
-
     }
-    vTaskDelay(eepRefresh / portTICK_PERIOD_MS);
+    vTaskDelay(1 / portTICK_PERIOD_MS);
   }
 }
 

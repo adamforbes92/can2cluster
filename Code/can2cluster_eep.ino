@@ -5,13 +5,16 @@ void readEEP() {
 
   // use ESP32's 'Preferences' to remember settings.  Begin by opening the various types.  Use 'false' for read/write.  True just gives read access
   pref.begin("useHall", false);
-  pref.begin("useECU", false);
   pref.begin("useDSG", false);
   pref.begin("useGPS", false);
   pref.begin("useABS", false);
+  pref.begin("useECU", false);
+
   pref.begin("coilType", false);
   pref.begin("useEMLLight", false);
   pref.begin("useEPCLight", false);
+  pref.begin("useEMLPark", false);
+  pref.begin("useEPCPark", false);
 
   pref.begin("hasNeedleSweep", false);
 
@@ -22,6 +25,7 @@ void readEEP() {
   pref.begin("maxSpeed", false);
   pref.begin("maxRPM", false);
   pref.begin("maxFreqHall", false);
+  pref.begin("maxFreqRPM", false);
 
   pref.begin("stepRPM", false);
   pref.begin("stepSpeed", false);
@@ -33,13 +37,16 @@ void readEEP() {
     DEBUG_PRINTLN(pref.getUChar("useHall"));
 #endif
     pref.putBool("useHall", useHall);
-    pref.putBool("useECU", useECU);
     pref.putBool("useDSG", useDSG);
     pref.putBool("useGPS", useGPS);
     pref.putBool("useABS", useABS);
+    pref.putBool("useECU", useECU);
+
     pref.putBool("coilType", coilType);
     pref.putBool("useEMLLight", useEMLShiftLight);
     pref.putBool("useEPCLight", useEPCShiftLight);
+    pref.putBool("useEMLPark", useEMLPark);
+    pref.putBool("useEPCPark", useEPCPark);
 
     pref.putBool("hasNeedleSweep", hasNeedleSweep);
 
@@ -50,6 +57,7 @@ void readEEP() {
     pref.putUShort("maxSpeed", maxSpeed);
     pref.putUShort("maxRPM", maxRPM);
     pref.putUShort("maxFreqHall", maxFreqHall);
+    pref.putUShort("maxFreqRPM", maxFreqRPM);
 
     pref.putUShort("stepRPM", stepRPM);
     pref.putUShort("stepSpeed", stepSpeed);
@@ -57,13 +65,16 @@ void readEEP() {
   } else {
 
     useHall = pref.getBool("useHall", true);
-    useECU = pref.getBool("useECU", false);
     useDSG = pref.getBool("useDSG", false);
     useGPS = pref.getBool("useGPS", false);
     useABS = pref.getBool("useABS", false);
+    useECU = pref.getBool("useECU", false);
+
     coilType = pref.getBool("coilType", true);
     useEMLShiftLight = pref.getBool("useEMLLight", false);
     useEPCShiftLight = pref.getBool("useEPCLight", false);
+    useEMLPark = pref.getBool("useEMLPark", false);
+    useEPCPark = pref.getBool("useEPCPark", false);
 
     hasNeedleSweep = pref.getBool("hasNeedleSweep", false);
 
@@ -74,6 +85,7 @@ void readEEP() {
     maxSpeed = pref.getUShort("maxSpeed", 200);
     maxRPM = pref.getUShort("maxRPM", 230);
     maxFreqHall = pref.getUShort("maxFreqHall", 200);
+    maxFreqRPM = pref.getUShort("maxFreqRPM", 230);
 
     stepRPM = pref.getUShort("stepRPM", 1.2);
     stepSpeed = pref.getUShort("stepSpeed", 1);
@@ -85,25 +97,26 @@ void readEEP() {
 #endif
 }
 
-void writeEEP(void *args) {
+void writeEEP(void *arg) {
   while (1) {
+        stackwriteEEP = uxTaskGetStackHighWaterMark(NULL);
+
 #if serialDebugEEP
     DEBUG_PRINTLN("Writing EEPROM...");
 #endif
 
-#if detailedDebugStack
-    stackWriteEEP = uxTaskGetStackHighWaterMark(NULL);  // for capturing how much memory the task is using
-#endif
-
     // update EEP only if changes have been made
     pref.putBool("useHall", useHall);
-    pref.putBool("useECU", useECU);
     pref.putBool("useDSG", useDSG);
     pref.putBool("useGPS", useGPS);
     pref.putBool("useABS", useABS);
+    pref.putBool("useECU", useECU);
+
     pref.putBool("coilType", coilType);
     pref.putBool("useEMLLight", useEMLShiftLight);
     pref.putBool("useEPCLight", useEPCShiftLight);
+    pref.putBool("useEMLPark", useEMLPark);
+    pref.putBool("useEPCPark", useEPCPark);
 
     pref.putBool("hasNeedleSweep", hasNeedleSweep);
 
@@ -114,6 +127,7 @@ void writeEEP(void *args) {
     pref.putUShort("maxSpeed", maxSpeed);
     pref.putUShort("maxRPM", maxRPM);
     pref.putUShort("maxFreqHall", maxFreqHall);
+    pref.putUShort("maxFreqRPM", maxFreqRPM);
 
     pref.putUShort("stepRPM", stepRPM);
     pref.putUShort("stepSpeed", stepSpeed);
