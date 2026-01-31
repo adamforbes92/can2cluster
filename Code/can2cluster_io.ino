@@ -387,20 +387,20 @@ void processOutputs(void *arg) {
     if (testEML || testPark) {
       digitalWrite(pinEML, HIGH);
     }
-    if (!testEML && useEMLPark) {
+    if (!testEML && !testPark && useEMLPark) {
       digitalWrite(pinEML, vehiclePark);
     }
-    if (!testEML && !useEMLPark) {
+    if (!testEML && !testPark && !useEMLPark) {
       digitalWrite(pinEML, vehicleEML);
     }
 
     if (testEPC || testPark) {
       digitalWrite(pinEPC, HIGH);
     }
-    if (!testEPC && useEPCPark) {
+    if (!testEPC && !testPark && useEPCPark) {
       digitalWrite(pinEPC, vehiclePark);
     }
-    if (!testEPC && !useEPCPark) {
+    if (!testEPC && !testPark && !useEPCPark) {
       digitalWrite(pinEPC, vehicleEML);
     }
 
