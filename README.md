@@ -4,7 +4,7 @@ Can2Cluster is designed to take CAN messages and convert them into an analog out
 
 The code is based on an ESP32, and will capture incoming CAN messages and convert them into useable 'analog' signals - like RPM, Speed, Engine Management Light (EML), Electronic Pedal Control Light (EPC) and Reverse (from DSG).  A full breakdown is below.  
 
-Alternative setups and CAN IDs can be added and would allow custom features - like a 'Park' light to be added.
+Alternative setups and CAN IDs can be added and would allow custom features.
 
 DSG gearboxes are supported and speed is currently calculated using the current gear value and RPM.  KWP2000/UDS would be a neat feature if it can be implemented!
 
@@ -24,31 +24,25 @@ If you want to purchase an assembled Can2Cluster, you can do so here: [Can2Clust
 ## IO
 Can2Cluster uses an 18-pin MX23A18 connector and features the following IO:
 
-#### Inputs
+#### IO List
+| Type | Signal | Notes |
+|-----|--------|-------|
+| Input | CAN (High & Low) | CANBUS |
+| Input | DSG Paddle + | Ground to activate |
+| Input | DSG Paddle - | Ground to activate |
+| Input | Hall Speed | Pull-up/down options |
+| Input | Hall RPM | Pull-down ONLY |
+| Input | GPS | Neo6M or similar |
+| Output | RPM (MK1/MK2) | High voltage 'coil type' |
+| Output | RPM Square | Pull-down ONLY |
+| Output | Speed Square | Pull-down ONLY |
+| Output | EML & EPC | Pull-down ONLY |
+| 11 | Reverse | 5A high-side |
 
-```http
-  CAN (High and Low)
-  Paddle Up (for DSG)
-  Paddle Down (for DSG)
-  Hall Sensor (12v Square/Frequency)
-  GPS (via. Software Serial RX/TX)
-```
-#### Outputs 
-
-```http
-RPM (as high-voltage) - for MK1/MK2 etc
-RPM (as square wave)
-Speed (as square wave)
-EML (200mA max.)
-EPC (200mA max.)
-Reverse (5A max.)
-```
 #### Optional / Cool Features 
-
-```http
 Shift Light (RPM vs. EML/EPC)
 Needle Sweep
-```
+Park release for DSG
 
 ### Pinout
 The MX23A18 connector pinout is:
@@ -79,14 +73,26 @@ The MX23A18 connector pinout is:
 Purchased modules will come pre-loaded with the most recent firmware, check back here for updates.  
 
 > Connect the module as per the wiring diagram
-
 > On initial power up, WiFi is available for the first 60 seconds - if there are no connections it will be turned back off to save power
-
 > Connect to the device and search for '192.168.1.1' in a browser
-
 > Configure the device to suit: Needle Sweep, Sweep Rate, RPM Type, Shift Light
-
 > Use the 'IO' tab to confirm incoming data
+
+### WiFi Setup
+Multiple options are available in WiFi:
+> Needle Sweep (rate adjustable)
+> RPM Output Selection
+> Shift light outputs (EML/EPC or both)
+> Park Lock Release (for DSG)
+> Speed Selection (Hall/ECU/ABS/DSG/GPS)
+
+![WiFi1](/Images/WiFi1.png)
+![WiFi2](/Images/WiFi2.png)
+![WiFi3](/Images/WiFi3.png)
+![WiFi4](/Images/WiFi4.png)
+![WiFi5](/Images/WiFi5.png)
+![WiFi6](/Images/WiFi6.png)
+![WiFi7](/Images/WiFi7.png)
 
 ## Adding CAN Functionality
 Users wishing to add CAN functionality not available are encourged to push commits to the project.  The main section of code for managing imcoming CAN messages are handled in an interrupt and pushed automatically.  Users should know the CAN ID and Bytes they wish to process and what variables to assign them to.
@@ -122,6 +128,15 @@ A selector for a hall sensor can be configured as pull-up or pull-down with the 
 
 ### 12v Pullup
 Used to configure outputs if the cluster does not have internal pull-ups.
+
+### Over-the-Air Updates
+OTA has now been enabled - so the updating to the latest release will allow future updates to be seemless.  
+
+> Download the most recent 'Release' - this will be saved locally on your phone/laptop/etc as a '.bin'.
+> Connect to Can2Cluster V2 on WiFi
+> Go to 192.168.1.1/update
+> Select file - locate the new '*.bin'
+> Wait for ESP to reboot
 
 ## PCB Design
 The PCB has been designed in EasyEDA and available in the 'PCB' folder.
