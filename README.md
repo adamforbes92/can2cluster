@@ -86,13 +86,13 @@ Multiple options are available in WiFi:
 > Park Lock Release (for DSG)
 > Speed Selection (Hall/ECU/ABS/DSG/GPS)
 
-![WiFi1](/Images/WiFi1.png)
-![WiFi2](/Images/WiFi2.png)
-![WiFi3](/Images/WiFi3.png)
-![WiFi4](/Images/WiFi4.png)
-![WiFi5](/Images/WiFi5.png)
-![WiFi6](/Images/WiFi6.png)
-![WiFi7](/Images/WiFi7.png)
+![WiFi1](/Images/WiFi1.jpg)
+![WiFi2](/Images/WiFi2.jpg)
+![WiFi3](/Images/WiFi3.jpg)
+![WiFi4](/Images/WiFi4.jpg)
+![WiFi5](/Images/WiFi5.jpg)
+![WiFi6](/Images/WiFi6.jpg)
+![WiFi7](/Images/WiFi7.jpg)
 
 ## Adding CAN Functionality
 Users wishing to add CAN functionality not available are encourged to push commits to the project.  The main section of code for managing imcoming CAN messages are handled in an interrupt and pushed automatically.  Users should know the CAN ID and Bytes they wish to process and what variables to assign them to.
