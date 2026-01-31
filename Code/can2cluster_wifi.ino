@@ -330,7 +330,7 @@ void extendedCallback(Control *sender, int type, void *param) {
     case 48:
       if (type == B_UP) {
         maxFreqRPM = 230;
-        ESPUI.updateSlider(int16_maxFreqRPM, maxFreqRPM);
+        ESPUI.updateSlider(int16_maxHallRPM, maxFreqRPM);
       }
       break;
   }
