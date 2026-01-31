@@ -59,9 +59,9 @@ The MX23A18 connector pinout is:
 | 7 | EML | Engine Management Light; pull-down |
 | 8 | EPC | Electronic Pedal Control Light; pull-down |
 | 9 | Reverse | 12v high-side reverse output; 5A max |
-| 10 | Paddle Up | +12v to activate |
-| 11 | Paddle Down | Gen1 differentials ONLY |
-| 12 | Hall Speed | +12v to activate |
+| 10 | Paddle Up | For DSG; pull-down |
+| 11 | Paddle Down | For DSG; pull-down |
+| 12 | Hall Speed | Optional pull-up/down |
 | 13 | N/A | Not used |
 | 14 | N/A | Not used |
 | 15 | N/A | Not used |
