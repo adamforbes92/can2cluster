@@ -404,7 +404,6 @@ void updateLabels(void *arg) {
     boolPadUpWiFi ? ESPUI.updateLabel(label_paddleUp, "Paddle Up: Active") : ESPUI.updateLabel(label_paddleUp, "Paddle Up: Not Active");
     boolPadDownWiFi ? ESPUI.updateLabel(label_paddleDown, "Paddle Down: Active") : ESPUI.updateLabel(label_paddleDown, "Paddle Down: Not Active");
 
-
     if (!testPark) {
       testPark ? ESPUI.updateLabel(label_parkActive, "On") : ESPUI.updateLabel(label_parkActive, "Off");
     } else {
@@ -435,6 +434,7 @@ void updateLabels(void *arg) {
     ESPUI.updateLabel(label_speedABS, String(absSpeed));
     ESPUI.updateLabel(label_speedECU, String(ecuSpeed));
     ESPUI.updateLabel(label_RPMCAN, String(vehicleRPM));
+    ESPUI.updateLabel(label_RPMCAN, String(label_RPMHall));
 
     if (useHall) {
       ESPUI.updateSelect(int16_speedType, "Hall");
