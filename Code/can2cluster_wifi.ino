@@ -345,7 +345,7 @@ void selectCallback(Control *sender, int value) {
 #endif
 }
 
-void connectWifi() {
+void setupWiFi() {
   WiFi.hostname(wifiHostName);
 
 #if detailedDebugWiFi
@@ -357,6 +357,7 @@ void connectWifi() {
   WiFi.mode(WIFI_AP);
   WiFi.softAPConfig(IPAddress(192, 168, 1, 1), IPAddress(192, 168, 1, 1), IPAddress(255, 255, 255, 0));
   WiFi.softAP(wifiHostName);
+  WiFi.setSleep(false);  // for the ESP32: turn off sleeping to increase UI responsivness (at the cost of power use)
 }
 
 void textCallback(Control *sender, int type) {

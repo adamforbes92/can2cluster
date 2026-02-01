@@ -70,10 +70,9 @@ void setup() {
     vTaskResume(handle_processOutputs);
   }
 
-  connectWifi();         // enable / start WiFi
-  WiFi.setSleep(false);  // for the ESP32: turn off sleeping to increase UI responsivness (at the cost of power use)
-  setupUI();             // setup wifi user interface
-  setupOTA();            // setup Over-the-Air updates
+  setupWiFi();                       // enable / start WiFi
+  setupUI();                           // setup wifi user interface
+  setupOTA();                          // setup Over-the-Air updates
 }
 
 void loop() {
@@ -84,7 +83,7 @@ void loop() {
     vTaskResume(handle_processOutputs);
     tempNeedleSweep = false;  // reset the flag
   }
-  
+
   if (tempShiftLight) {  // only here if tested in WiFi
     vTaskSuspend(handle_parseShiftLights);
     if (useEPCShiftLight || useEMLShiftLight) {

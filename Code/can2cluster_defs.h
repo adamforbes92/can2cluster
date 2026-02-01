@@ -14,10 +14,10 @@
 
 /* Defines */
 // Debug statements
-#define enableDebug 1           // for enabling Serial talkback
+#define enableDebug 0           // for enabling Serial talkback
 #define ChassisCANDebug 0       // for CAN 1 (Chassis) messages
 #define detailedDebugStack 0    // for stack sizes (for task memory allocation)
-#define detailedDebugWiFi 1     // for wifi feedback
+#define detailedDebugWiFi 0     // for wifi feedback
 #define detailedDebugEEP 0      // for EEP Serial feedback
 #define detailedDebugGPS 0      // for GPS Serial feedback
 #define detailedDebugPaddles 0  // for Paddle Serial feedback
