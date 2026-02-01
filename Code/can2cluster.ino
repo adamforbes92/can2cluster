@@ -63,16 +63,15 @@ void setup() {
   basicInit();   // basic init for setting up Serial / IO / CAN / GPS
   setupTimer();  // setup the timers (with a base frequency)
   setupTasks();  // setup the tasks
+  setupWiFi();                       // enable / start WiFi
+  setupUI();                           // setup wifi user interface
+  setupOTA();                          // setup Over-the-Air updates
 
   if (hasNeedleSweep) {
     vTaskSuspend(handle_processOutputs);
     needleSweep();  // carry out needle sweep if defined
     vTaskResume(handle_processOutputs);
   }
-
-  setupWiFi();                       // enable / start WiFi
-  setupUI();                           // setup wifi user interface
-  setupOTA();                          // setup Over-the-Air updates
 }
 
 void loop() {
