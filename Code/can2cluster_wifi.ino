@@ -434,7 +434,7 @@ void updateLabels(void *arg) {
     ESPUI.updateLabel(label_speedABS, String(absSpeed));
     ESPUI.updateLabel(label_speedECU, String(ecuSpeed));
     ESPUI.updateLabel(label_RPMCAN, String(vehicleRPM));
-    ESPUI.updateLabel(label_RPMCAN, String(label_RPMHall));
+    ESPUI.updateLabel(label_RPMHall, String(vehicleRPMHall));
 
     if (useHall) {
       ESPUI.updateSelect(int16_speedType, "Hall");
