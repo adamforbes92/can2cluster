@@ -405,7 +405,7 @@ void updateLabels(void *arg) {
     boolPadDownWiFi ? ESPUI.updateLabel(label_paddleDown, "Paddle Down: Active") : ESPUI.updateLabel(label_paddleDown, "Paddle Down: Not Active");
 
     if (!testPark) {
-      testPark ? ESPUI.updateLabel(label_parkActive, "On") : ESPUI.updateLabel(label_parkActive, "Off");
+      vehiclePark ? ESPUI.updateLabel(label_parkActive, "On") : ESPUI.updateLabel(label_parkActive, "Off");
     } else {
       ESPUI.updateLabel(label_parkActive, "On");
     }
