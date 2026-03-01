@@ -8,7 +8,7 @@ Alternative setups and CAN IDs can be added and would allow custom features.
 
 DSG gearboxes are supported and speed is currently calculated using the current gear value and RPM.  KWP2000/UDS would be a neat feature if it can be implemented!
 
-If no speed is available (from either hall or CAN), an optional GPS module (like the Neo6M) can be used to capture speed via. GPS.  This can be broadcast via. CAN if required - users should know the ID they would like it broadcast to.  A reminder that GPS modules need to see the sky and depending on installation location may need an external aerial to be fitted.  It uses a standard connector.
+If no speed is available (from either hall or CAN), an optional GPS module (like the Neo6M) can be used to capture speed via. GPS.  This can be broadcast via. CAN if required - users should know the ID they would like it broadcast to.  A reminder that GPS modules need to see the sky and depending on installation location may need an external aerial to be fitted.  It uses a standard SMA connector.
 
 WiFi calibration is supported to minimise code editting and provides valueable feedback on incoming messages.  It is viewable on 192.168.1.1 and is available for 60 seconds after boot! 
 
@@ -138,12 +138,16 @@ A selector for a hall sensor can be configured as pull-up or pull-down with the 
 Used to configure outputs if the cluster does not have internal pull-ups.
 
 ### Over-the-Air Updates
-OTA has now been enabled - so the updating to the latest release will allow future updates to be seemless.  
+OTA has now being enabled - so the updating to the latest release will allow future updates to be seemless.  
 
-> Download the most recent 'Release' - this will be saved locally on your phone/laptop/etc as a '.bin'.
+> Download the most recent 'Release' - this will be saved locally on your phone/laptop/etc as a '.bin'
+
 > Connect to Can2Cluster V2 on WiFi
+
 > Go to 192.168.1.1/update
+
 > Select file - locate the new '*.bin'
+
 > Wait for ESP to reboot
 
 ## PCB Design
