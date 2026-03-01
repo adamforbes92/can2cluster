@@ -7,7 +7,7 @@ void canInit() {
   // set filters up for focusing on only MOT1 / MOT 2?
 }
 
-void onBodyRX(const CAN_message_t &frame) {
+void onBodyRX(const CAN_message_t& frame) {
 #if ChassisCANDebug  // print incoming CAN messages
   Serial.print("Length Recv: ");
   Serial.print(frame.len);
@@ -47,9 +47,9 @@ void onBodyRX(const CAN_message_t &frame) {
         //vehicleReverse = false;
       }
       if (frame.buf[0] == 0x83 || frame.buf[0] == 0x82) {
-        //vehiclePark = true;  // unused bool, but a good to have...
+        vehiclePark = true;  // unused bool, but a good to have...
       } else {
-        //vehiclePark = false;  // unused bool, but a good to have...
+        vehiclePark = false;  // unused bool, but a good to have...
       }
       break;
 
@@ -160,51 +160,56 @@ void sendPaddleDownFrame() {
   }
 }
 
-void broadcastGRA(void *arg) {
+void broadcastGRA(void* args) {
   while (1) {
-    stackbroadcastGRA = uxTaskGetStackHighWaterMark(NULL);
+#if detailedDebugStack
+    stackbroadcastGRA = uxTaskGetStackHighWaterMark(NULL);  // for capturing how much memory the task is using
+#endif
 
-    if (useDSG) {
-      CAN_message_t broadcastGRA;
-      broadcastGRA.id = GRA_ID;
-      broadcastGRA.len = 4;
-      //broadcastGRA.buf[0] = GRA_crc; - calculated soon...
-      broadcastGRA.buf[1] = 0x00;         // always zero
-      broadcastGRA.buf[2] = GRA_counter;  // counter (0x00 > 0xF0)
-      if (boolPadUp) {
-        broadcastGRA.buf[3] = 0x02;
-        boolPadUp = false;
-        boolPadUpWiFi = true;
-      }
-
-      if (boolPadDown) {
-        broadcastGRA.buf[3] = 0x01;
-        boolPadDown = false;
-        boolPadDownWiFi = true;
-      }
-
-      GRA_crc = 0;
-      for (uint8_t i = 2; i < 5; i++) {
-        GRA_crc ^= broadcastGRA.buf[i];  // xor byte 2, 3, 4
-      }
-      broadcastGRA.buf[0] = GRA_crc;
-
-      if (!chassisCAN.write(broadcastGRA)) {  // write CAN frame from the body to the Haldex
-      }
-
-      GRA_counter = GRA_counter + 16;
-      if (GRA_counter > 0xF0) {
-        GRA_counter = 0;
-      }
+    CAN_message_t broadcastGRA;
+    broadcastGRA.id = GRA_ID;
+    broadcastGRA.len = 4;
+    //broadcastGRA.buf[0] = GRA_crc; - calculated soon...
+    broadcastGRA.buf[1] = 0x00;         // always zero
+    broadcastGRA.buf[2] = GRA_counter;  // counter (0x00 > 0xF0)
+    if (boolPadUp) {
+#if serialDebugPaddles
+      DEBUG("Paddle up");
+#endif
+      broadcastGRA.buf[3] = 0x02;
+      boolPadUp = false;
     }
-    vTaskDelay(speedBroadcast / portTICK_PERIOD_MS);
+
+    if (boolPadDown) {
+#if serialDebugPaddles
+      DEBUG("Paddle down");
+#endif
+      broadcastGRA.buf[3] = 0x01;
+      boolPadDown = false;
+    }
+
+    GRA_crc = 0;
+    for (uint8_t i = 2; i < 5; i++) {
+      GRA_crc ^= broadcastGRA.buf[i];  // xor byte 2, 3, 4
+    }
+    broadcastGRA.buf[0] = GRA_crc;
+
+    if (!chassisCAN.write(broadcastGRA)) {  // write CAN frame from the body to the Haldex
+    }
+
+    GRA_counter = GRA_counter + 16;
+    if (GRA_counter > 0xF0) {
+      GRA_counter = 0;
+    }
+    vTaskDelay(broadcastGRARefresh / portTICK_PERIOD_MS);
   }
 }
 
-void broadcastSpeed(void *arg) {
+void broadcastSpeed(void* args) {
   while (1) {
-    stackbroadcastSpeed = uxTaskGetStackHighWaterMark(NULL);
-
+#if detailedDebugStack
+    stackbroadcastSpeed = uxTaskGetStackHighWaterMark(NULL);  // for capturing how much memory the task is using
+#endif
     // todo
     /*  CAN_message_t broadcastSpeed;  //0x7C0
   broadcastSpeed.id = BRAKES1_ID;
@@ -214,7 +219,8 @@ void broadcastSpeed(void *arg) {
   broadcastSpeed.buf[3] = 0x00;
     if (!chassisCAN.write(broadcastSpeed)) {  // write CAN frame from the body to the Haldex
   }
+
   */
-    vTaskDelay(speedBroadcast / portTICK_PERIOD_MS);
+    vTaskDelay(broadcastSpeedRefresh / portTICK_PERIOD_MS);
   }
 }

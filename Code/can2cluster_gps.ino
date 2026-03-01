@@ -1,6 +1,14 @@
-void parseGPS(void *arg) {
+void parseGPS(void *args) {
   while (1) {
-    stackparseGPS = uxTaskGetStackHighWaterMark(NULL);
+#if detailedDebugStack
+    stackparseGPS = uxTaskGetStackHighWaterMark(NULL);  // for capturing how much memory the task is using
+#endif
+    if (gps.charsProcessed() < 10) {
+      gpsError = true;
+      DEBUG("No GPS data received: check wiring");
+    } else {
+      gpsError = false;
+    }
 
     while (ss.available() > 0) {
       gps.encode(ss.read());
@@ -15,6 +23,7 @@ void parseGPS(void *arg) {
     if (gps.speed.isUpdated()) {
       gpsSpeed = int(gps.speed.kmph());  // * 0.621371;  // factor for converting kmh > mph
     }
+
     vTaskDelay(1 / portTICK_PERIOD_MS);
   }
 }
