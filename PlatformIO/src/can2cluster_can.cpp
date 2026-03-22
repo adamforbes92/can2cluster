@@ -1,0 +1,279 @@
+#include "can2cluster_can.h"
+#include "vw_uds.h"
+
+void canInit() {
+  // Configure TWAI (CAN) controller
+  twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT((gpio_num_t)pinTX_CAN, (gpio_num_t)pinRX_CAN, TWAI_MODE_NORMAL);
+  twai_timing_config_t t_config = TWAI_TIMING_CONFIG_500KBITS();
+  twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
+
+  // Install TWAI driver
+  if (twai_driver_install(&g_config, &t_config, &f_config) != ESP_OK) {
+    DEBUG("TWAI driver install failed");
+    return;
+  }
+
+  // Start TWAI driver
+  if (twai_start() != ESP_OK) {
+    DEBUG("TWAI start failed");
+    return;
+  }
+
+  // Create a task to handle incoming CAN messages
+  xTaskCreate(canReceiveTask, "canReceiveTask", 4096, NULL, 5, NULL);
+}
+
+void canReceiveTask(void *args) {
+  twai_message_t rx_frame;
+  while (1) {
+    while (twai_receive(&rx_frame, 0) == ESP_OK) {
+      onBodyRX(rx_frame);
+    }
+    vTaskDelay(1);
+  }
+}
+
+void onBodyRX(const twai_message_t& frame) {
+#if ChassisCANDebug  // print incoming CAN messages
+  DEBUG_CHASSIS_CAN_("Length: %u ID: 0x%03X Buffer: ", frame.data_length_code, frame.identifier);
+  for (uint8_t i = 0; i < frame.data_length_code; i++) {
+    if (i > 0) Serial.print(" ");
+    Serial.printf("%02X", frame.data[i]);
+  }
+  Serial.println();
+#endif
+  lastCAN = millis();
+  hasCAN = true;
+
+  // process VW UDS responses via helper library
+  vw_uds_process_response(frame);
+
+  switch (frame.identifier) {
+    case MOTOR1_ID:
+      // frame[2] (byte 3) > motor speed low byte
+      // frame[3] (byte 4) > motor speed high byte
+      // frame[4] (byte 3) > khm speed?
+      vehicleRPMCAN = ((frame.data[3] << 8) | frame.data[2]) * 0.25;  // conversion: 0.25*HEX
+      break;
+
+    case MOTOR2_ID:
+      ecuSpeed = (frame.data[3] * 100 * 128) / 10000;
+      break;
+
+    case MOTOR5_ID:
+      // set EML & EPC based on the bit read (LSB, so backwards)
+      vehicleEML = bitRead(frame.data[1], 5);
+      vehicleEPC = bitRead(frame.data[1], 6);
+      break;
+
+    case MOTOR6_ID:
+      if (frame.data[0] == 0x73 || frame.data[0] == 0x72) {
+        //vehicleReverse = true;
+      } else {
+        //vehicleReverse = false;
+      }
+      if (frame.data[0] == 0x83 || frame.data[0] == 0x82) {
+        vehiclePark = true;  // unused bool, but a good to have...
+      } else {
+        vehiclePark = false;  // unused bool, but a good to have...
+      }
+      break;
+
+    case BRAKES3_ID:
+      if (calcSpeed == 0) {
+        absSpeed = ((frame.data[0] << 8) | frame.data[1]);  // conversion: 0.25*HEX
+      }
+      break;
+
+    case mWaehlhebel_1_ID:
+      gear_raw = ((frame.data[7] & 0b01110000) >> 4) - 1;
+      lever_raw = (frame.data[7] & 0b00000001);
+
+      if (lever_raw) {
+        gear = gear_raw;
+        switch (gear) {
+          case 3:
+            break;
+          default:
+            break;
+        }
+
+        if (gear == 0xFF) {
+          gear = 1;
+        }
+      }
+      break;
+
+    case gearLever_ID:
+      lever = (frame.data[0] & 0b11110000) >> 4;
+      switch (lever) {
+        case LEVER_P:
+          vehiclePark = true;
+          vehicleReverse = false;
+          vehicleNeutral = false;
+          break;
+        case LEVER_R:
+          vehiclePark = false;
+          vehicleReverse = true;
+          vehicleNeutral = false;
+          break;
+        case LEVER_N:
+          vehiclePark = false;
+          vehicleReverse = false;
+          vehicleNeutral = true;
+          break;
+        case LEVER_D:
+        case LEVER_S:
+        case LEVER_TIPTRONIC_ON:
+        case LEVER_TIPTRONIC_UP:
+        case LEVER_TIPTRONIC_DOWN:
+          vehiclePark = false;
+          vehicleReverse = false;
+          vehicleNeutral = false;
+          break;
+      }
+      break;
+
+    case emeraldECU1_ID:
+      vehicleRPMCAN = ((frame.data[0] << 8) | frame.data[1]);
+      break;
+
+    case emeraldECU2_ID:
+      calcSpeed = ((frame.data[2] << 8) | frame.data[3]) * (2.25 / 256);
+      break;
+
+    case fordECU1_ID:
+      vehicleRPMCAN = frame.data[1] & 0x00FF;
+      vehicleRPMCAN |= (frame.data[0] << 8) & 0x7F00;
+      break;
+
+    case fordECU2_ID:
+      vehicleOilPressure = (frame.data[5] >> 4) & 0x01;
+      vehicleBattLight = (frame.data[4] >> 1) & 0x01;
+      vehicleEML = (frame.data[4] >> 6) & 0x03;
+      vehicleCoolantTemp = (frame.data[0] & 0xFF) - 40;
+      break;
+
+    default:
+      // do nothing...
+      break;
+  }
+}
+
+void queryDSG_TP20() {
+  vw_uds_query_dsg_tp20();
+}
+
+void queryHaldex_UDS() {
+  vw_uds_query_haldex_uds();
+}
+
+void queryECUTask(void *args) {
+  while (1) {
+    // Only run diagnostics if TP/UDS DSG is the active speed source
+    if (useTPUDSDSG) {
+      queryDSG_TP20();
+      delay(20);
+      queryHaldex_UDS();
+      vTaskDelay(pdMS_TO_TICKS(2000));
+    } else {
+      vTaskDelay(pdMS_TO_TICKS(100));  // quick idle check when TP/UDS DSG not in use
+    }
+  }
+}
+
+void sendPaddleUpFrame() {
+  twai_message_t paddlesUp{};  //0x7C0
+  paddlesUp.identifier = GRA_ID;
+  paddlesUp.data_length_code = 4;
+  paddlesUp.data[0] = 0x0E;             // was 0xB7 chksum = byte 2 XOR byte 3 XOR byte 4
+  paddlesUp.data[2] = 0x0C;             // was 0x34
+  paddlesUp.data[3] = 0x02;             //
+  bitSet(paddlesUp.data[3], 1);         // set high (trigger)
+  if (twai_transmit(&paddlesUp, pdMS_TO_TICKS(100)) != ESP_OK) {
+    // failed, ignore
+  }
+}
+
+void sendPaddleDownFrame() {
+  twai_message_t paddlesDown{};  //0x7C0
+  paddlesDown.identifier = GRA_ID;
+  paddlesDown.data_length_code = 4;
+  paddlesDown.data[0] = 0x0D;  // chksum = byte 2 XOR byte 3 XOR byte
+  paddlesDown.data[2] = 0x0C;
+  paddlesDown.data[3] = 0x01;
+  bitSet(paddlesDown.data[3], 1);         // set high (trigger)
+  if (twai_transmit(&paddlesDown, pdMS_TO_TICKS(100)) != ESP_OK) {
+    // failed, ignore
+  }
+}
+
+void broadcastGRA(void* args) {
+  uint8_t activeGraCommand = 0x00;
+  uint32_t activeGraCommandUntilMs = 0;
+
+  while (1) {
+#if detailedDebugStack
+    stackbroadcastGRA = uxTaskGetStackHighWaterMark(NULL);  // for capturing how much memory the task is using
+#endif
+
+    uint8_t graPulseMS = 80;  // how long to hold the paddle signal high for (ms)
+
+    twai_message_t broadcastGRA{};
+    broadcastGRA.identifier = GRA_ID;
+    broadcastGRA.data_length_code = 4;
+    //broadcastGRA.data[0] = GRA_crc; - calculated soon...
+    broadcastGRA.data[1] = 0x00;         // always zero
+    broadcastGRA.data[2] = GRA_counter;  // full 8-bit rolling counter (0x00 > 0xFF)
+    if (padUpTxPending && padDownTxPending) {
+#if serialDebugPaddles
+      DEBUG("Paddle up/down triggered together");
+#endif
+      padUpTxPending = false;
+      padDownTxPending = false;
+    } else if (padUpTxPending) {
+#if serialDebugPaddles
+      DEBUG("Paddle up");
+#endif
+      activeGraCommand = 0x02;
+      activeGraCommandUntilMs = millis() + graPulseMS;
+      padUpTxPending = false;
+    } else if (padDownTxPending) {
+#if serialDebugPaddles
+      DEBUG("Paddle down");
+#endif
+      activeGraCommand = 0x01;
+      activeGraCommandUntilMs = millis() + graPulseMS;
+      padDownTxPending = false;
+    }
+
+    if (activeGraCommand != 0x00 && (int32_t)(millis() - activeGraCommandUntilMs) < 0) {
+      broadcastGRA.data[3] = activeGraCommand;
+    } else {
+      broadcastGRA.data[3] = 0x00;
+      activeGraCommand = 0x00;
+    }
+
+    GRA_crc = 0;
+    for (uint8_t i = 2; i < 5; i++) {
+      GRA_crc ^= broadcastGRA.data[i];  // xor byte 2, 3, 4
+    }
+    broadcastGRA.data[0] = GRA_crc;
+
+    if (twai_transmit(&broadcastGRA, pdMS_TO_TICKS(100)) != ESP_OK) {  // write CAN frame from the body to the Haldex
+    }
+
+    GRA_counter++;
+    vTaskDelay(pdMS_TO_TICKS(broadcastGRARefresh));
+  }
+}
+
+void broadcastSpeed(void* args) {
+  while (1) {
+#if detailedDebugStack
+    stackbroadcastSpeed = uxTaskGetStackHighWaterMark(NULL);  // for capturing how much memory the task is using
+#endif
+    // TODO: implement speed CAN broadcasting if needed
+    vTaskDelay(pdMS_TO_TICKS(broadcastSpeedRefresh));
+  }
+}

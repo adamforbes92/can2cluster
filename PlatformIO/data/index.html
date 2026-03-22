@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+
+    <title>Can2Cluster</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>Can2Cluster V2</h1>
+            <div class="status-bar">
+                <span class="status-badge" id="canStatus">CAN: --</span>
+                <span class="status-badge" id="fwVersion">FW: --</span>
+            </div>
+        </header>
+
+        <nav class="nav-tabs">
+            <button class="nav-tab active" data-page="dashboard">Dashboard</button>
+            <button class="nav-tab" data-page="configuration">Configuration</button>
+            <button class="nav-tab" data-page="advanced">Advanced</button>
+            <button class="nav-tab" data-page="ota">OTA</button>
+        </nav>
+
+        <div class="page active" id="dashboard-page">
+            <section class="card">
+                <h2>Live Data</h2>
+                <div class="gauge-grid">
+                    <div class="gauge">
+                        <div class="gauge-label">RPM Final</div>
+                        <div class="gauge-value" id="rpm">--</div>
+                        <div class="gauge-unit">RPM</div>
+                    </div>
+                    <div class="gauge">
+                        <div class="gauge-label">Speed Final</div>
+                        <div class="gauge-value" id="speed">--</div>
+                        <div class="gauge-unit">km/h</div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="card">
+                <h2>System Status</h2>
+                <div class="status-grid">
+                    <div class="status-item">
+                        <div class="status-label">CAN Bus</div>
+                        <div class="status-value" id="canPresent">--</div>
+                    </div>
+                    <div class="status-item">
+                        <div class="status-label">GPS Available</div>
+                        <div class="status-value" id="gpsPresent">--</div>
+                    </div>
+                    <div class="status-item">
+                        <div class="status-label">EML</div>
+                        <div class="status-value" id="emlStatus" style="transition: background-color 0.3s;">--</div>
+                    </div>
+                    <div class="status-item">
+                        <div class="status-label">EPC</div>
+                        <div class="status-value" id="epcStatus" style="transition: background-color 0.3s;">--</div>
+                    </div>
+                    <div class="status-item">
+                        <div class="status-label">Reverse</div>
+                        <div class="status-value" id="reverseStatus" style="transition: background-color 0.3s;">--</div>
+                    </div>
+                    <div class="status-item">
+                        <div class="status-label">Park</div>
+                        <div class="status-value" id="parkStatus">--</div>
+                    </div>
+                    <div class="status-item">
+                        <div class="status-label">Paddle Up</div>
+                        <div class="status-value" id="paddleUpStatus">--</div>
+                    </div>
+                    <div class="status-item">
+                        <div class="status-label">Paddle Down</div>
+                        <div class="status-value" id="paddleDownStatus">--</div>
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <div class="page" id="configuration-page">
+            <section class="card">
+                <h2>Needle Sweep Configuration</h2>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="hasNeedleSweep">
+                        Enable Needle Sweep
+                    </label>
+                </div>
+                <div class="input-group">
+                    <label>Sweep Speed (ms)</label>
+                    <input type="number" id="sweepSpeed" min="1" max="100" value="18">
+                </div>
+                <div class="input-group">
+                    <label>RPM Step</label>
+                    <input type="number" id="stepRPM" min="0" max="500" value="100">
+                </div>
+                <div class="input-group">
+                    <label>Speed Step</label>
+                    <input type="number" id="stepSpeed" min="0" max="500" value="100">
+                </div>
+                <button class="btn-secondary" id="testNeedleSweep">Test Needle Sweep</button>
+            </section>
+
+            <section class="card">
+                <h2>Shift Light Configuration</h2>
+                <div class="input-group">
+                    <label>Shift Light Output</label>
+                    <select id="shiftLight">
+                        <option value="None">None</option>
+                        <option value="EML">EML</option>
+                        <option value="EPC">EPC</option>
+                        <option value="Both">Both</option>
+                    </select>
+                </div>
+                <div class="input-group">
+                    <label>Shift RPM Limit</label>
+                    <input type="number" id="shiftLimit" min="0" max="8000" value="0">
+                </div>
+                <div class="input-group">
+                    <label>Number of Flashes</label>
+                    <input type="number" id="shiftFlashes" min="0" max="5" value="0">
+                </div>
+                <button class="btn-secondary" id="testShiftLight">Test Shift Light</button>
+            </section>
+
+            <section class="card">
+                <h2>Cluster Output Configuration</h2>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="coilType">
+                        Use Coil Output (RPM)
+                    </label>
+                </div>
+            </section>
+
+            <section class="card">
+                <h2>DSG Park Behaviour</h2>
+                <div class="input-group">
+                    <label>Park Indicator Output</label>
+                    <select id="dsgParkMode">
+                        <option value="None">None</option>
+                        <option value="EML">EML Light</option>
+                        <option value="EPC">EPC Light</option>
+                    </select>
+                </div>
+            </section>
+        </div>
+
+        <div class="page" id="advanced-page">
+            <section class="card">
+                <h2>Live Data - All Inputs</h2>
+                <div class="live-data-grid">
+                    <div class="live-data-item">
+                        <div class="live-data-label">RPM</div>
+                        <div class="live-data-value" id="liveRPM">--</div>
+                    </div>
+                    <div class="live-data-item">
+                        <div class="live-data-label">Hall RPM</div>
+                        <div class="live-data-value" id="liveHallRPM">--</div>
+                    </div>
+                    <div class="live-data-item">
+                        <div class="live-data-label">CAN RPM</div>
+                        <div class="live-data-value" id="liveCANRPM">--</div>
+                    </div>
+                    <div class="live-data-item">
+                        <div class="live-data-label">Hall Speed</div>
+                        <div class="live-data-value" id="liveHallSpeed">--</div>
+                    </div>
+                    <div class="live-data-item">
+                        <div class="live-data-label">ECU Speed</div>
+                        <div class="live-data-value" id="liveECUSpeed">--</div>
+                    </div>
+                    <div class="live-data-item">
+                        <div class="live-data-label">ABS Speed</div>
+                        <div class="live-data-value" id="liveABSSpeed">--</div>
+                    </div>
+                    <div class="live-data-item">
+                        <div class="live-data-label">DSG Speed</div>
+                        <div class="live-data-value" id="liveDSGSpeed">--</div>
+                    </div>
+                    <div class="live-data-item">
+                        <div class="live-data-label">TP2.0/UDS Speed</div>
+                        <div class="live-data-value" id="liveUDSSpeed">--</div>
+                    </div>
+                    <div class="live-data-item">
+                        <div class="live-data-label">GPS Speed</div>
+                        <div class="live-data-value" id="liveGPSSpeed">--</div>
+                    </div>
+                    <div class="live-data-item">
+                        <div class="live-data-label">GPS Status</div>
+                        <div class="live-data-value" id="liveGPSStatus">--</div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="card">
+                <h2>RPM Output Test</h2>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="testRPM">
+                        Enable RPM Test
+                    </label>
+                </div>
+                <div class="input-group">
+                    <label>Test RPM Value: <span id="tempRPM-display" style="transition: background-color 0.3s;">0</span> RPM</label>
+                    <input type="range" id="tempRPM" min="0" max="8000" value="0" class="slider">
+                </div>
+            </section>
+
+            <section class="card">
+                <h2>Speed Output Test</h2>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="testSpeedo">
+                        Enable Speed Test
+                    </label>
+                </div>
+                <div class="input-group">
+                    <label>Test Speed Value: <span id="tempSpeed-display" style="transition: background-color 0.3s;">0</span> km/h</label>
+                    <input type="range" id="tempSpeed" min="0" max="200" value="0" class="slider">
+                </div>
+            </section>
+
+            <section class="card">
+                <h2>Output Tests</h2>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="testReverse">
+                        Test Reverse Output
+                    </label>
+                </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="testEML">
+                        Test EML Light
+                    </label>
+                </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="testEPC">
+                        Test EPC Light
+                    </label>
+                </div>
+            </section>
+
+            <section class="card">
+                <h2>Speed Selection</h2>
+                <div class="input-group">
+                    <label>Primary Speed Input</label>
+                    <select id="speedSource">
+                        <option value="Hall">Hall</option>
+                        <option value="ECU">ECU</option>
+                        <option value="ABS">ABS</option>
+                        <option value="DSG">DSG</option>
+                        <option value="TP2.0-DSG">TP/UDS DSG</option>
+                        <option value="GPS">GPS</option>
+                    </select>
+                </div>
+            </section>
+
+            <section class="card">
+                <h2>RPM Selection</h2>
+                <div class="input-group">
+                    <label>RPM Source</label>
+                    <select id="rpmSource">
+                        <option value="Hall">Hall</option>
+                        <option value="CAN">CAN</option>
+                    </select>
+                </div>
+
+                <div class="input-group" style="margin-top: 1rem;">
+                    <label>Cluster Frequency Limit: <span id="clusterFrequencyLimit-display">230</span> Hz</label>
+                    <input type="range" id="clusterFrequencyLimit" min="1" max="500" step="5" value="230" class="slider">
+                </div>
+                <button class="btn-secondary" id="resetClusterFrequencyLimit">Reset Frequency Limit</button>
+
+                <div class="input-group" style="margin-top: 1rem;">
+                    <label>Cluster RPM Limit: <span id="clusterRPMLimit-display">7000</span> RPM</label>
+                    <input type="range" id="clusterRPMLimit" min="500" max="10000" step="5" value="7000" class="slider">
+                </div>
+                <button class="btn-secondary" id="resetClusterRPMLimit">Reset RPM Limit</button>
+            </section>
+        </div>
+
+        <div class="page" id="ota-page">
+            <section class="card">
+                <h2>Device Information</h2>
+                <div class="info-grid">
+                    <div class="info-item">
+                        <div class="info-label">Board</div>
+                        <div class="info-value" id="otaBoard">--</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Hardware</div>
+                        <div class="info-value" id="otaHardware">--</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Current Version</div>
+                        <div class="info-value" id="otaCurrentVersion">--</div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="card">
+                <h2>Firmware Update</h2>
+                <div class="warning-box">
+                    ⚠️ <strong>Warning:</strong> Do not turn off the device during the update process. The device will reboot automatically.
+                </div>
+                
+                <div class="file-upload-section">
+                    <label class="file-upload-label">
+                        <input type="file" id="otaFileInput" accept=".bin" style="display: none;">
+                        <span class="upload-button">Choose .bin File</span>
+                    </label>
+                    <div class="file-name" id="otaFileName">No file selected</div>
+                </div>
+
+                <button class="btn-primary" id="otaUploadBtn" disabled>Start Update</button>
+                
+                <div class="progress-container" id="otaProgressContainer" style="display: none;">
+                    <div class="progress-label" id="otaProgressLabel">Uploading...</div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="otaProgressFill"></div>
+                    </div>
+                    <div class="progress-percent" id="otaProgressPercent">0%</div>
+                </div>
+
+                <div class="status-message" id="otaStatusMessage" style="display: none;"></div>
+            </section>
+        </div>
+
+
+    </div>
+
+    <link rel="stylesheet" href="style.css">
+    <script src="app.js"></script>
+</body>
+
+</html>

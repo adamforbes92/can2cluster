@@ -1,0 +1,22 @@
+{
+  "build": {
+    "core": "esp32",
+    "cpu": "esp32",
+    "f_cpu": "240000000L",
+    "flash_mode": "dio",
+    "mcu": "ESP32",
+    "variant": "esp32",
+    "extra_flags": "-DARDUINO_ARCH_ESP32"
+  },
+  "frameworks": ["arduino", "espidf"],
+  "name": "ESP32 DevKit V1 (Custom)",
+  "upload": {
+    "flash_size": "4MB",
+    "maximum_ram_size": 4194304,
+    "maximum_size": 1048576,
+    "protocol": "esptool",
+    "speed": 460800
+  },
+  "url": "https://docs.platformio.org/en/latest/boards/espressif32/esp32dev.html",
+  "vendor": "Espressif"
+}
