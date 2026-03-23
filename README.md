@@ -16,6 +16,8 @@ WiFi calibration is supported to minimise code editting and provides valueable f
 
 This can be expanded to support other marques and is actively encouraged.  Other users are actively using the DSG support and using the EML/EPC outputs to configure shift locks and other features.
 
+![Board Overview](/Images/can2clusterUI.png)
+
 ![Board Overview](/Images/BoardOverview.png)
 
 ### Purchase
@@ -94,14 +96,6 @@ Multiple options are available in WiFi:
 
 > Speed Selection (Hall/ECU/ABS/DSG/GPS)
 
-![WiFi1](/Images/WiFi1.jpg)
-![WiFi2](/Images/WiFi2.jpg)
-![WiFi3](/Images/WiFi3.jpg)
-![WiFi4](/Images/WiFi4.jpg)
-![WiFi5](/Images/WiFi5.jpg)
-![WiFi6](/Images/WiFi6.jpg)
-![WiFi7](/Images/WiFi7.jpg)
-
 ## Adding CAN Functionality
 Users wishing to add CAN functionality not available are encourged to push commits to the project.  The main section of code for managing imcoming CAN messages are handled in an interrupt and pushed automatically.  Users should know the CAN ID and Bytes they wish to process and what variables to assign them to.
 
@@ -144,7 +138,7 @@ OTA has now being enabled - so the updating to the latest release will allow fut
 
 > Connect to Can2Cluster V2 on WiFi
 
-> Go to 192.168.1.1/update
+> Go to 192.168.1.1 and choose the OTA tab.
 
 > Select file - locate the new '*.bin'
 
