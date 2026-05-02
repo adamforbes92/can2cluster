@@ -7,6 +7,8 @@ void basicInit(void);
 void setupPins(void);
 void setupButtons(void);
 void setupTasks(void);
+void tasksSuspendAll(void);
+void tasksResumeAll(void);
 void showState(void *arg);
 void updateSpeed(void *args);
 void updateRPM(void *args);

@@ -20,6 +20,31 @@ void setupTasks()
   xTaskCreatePinnedToCore(checkError,     "checkError",     2000, NULL, 12, NULL,    1);
 }
 
+// Suspend all tasks that could interfere with SoftwareSerial timing during
+// a GPS baud/rate change. Called from loop() before setGPSUpdateRate().
+void tasksSuspendAll()
+{
+  if (gpsTaskHandle != NULL)
+    vTaskSuspend(gpsTaskHandle);
+  if (updateSpeedHandle != NULL)
+    vTaskSuspend(updateSpeedHandle);
+  if (updateRPMHandle != NULL)
+    vTaskSuspend(updateRPMHandle);
+  DEBUG("[TASK] Tasks suspended for GPS rate change.");
+}
+
+// Resume all tasks suspended by tasksSuspendAll().
+void tasksResumeAll()
+{
+  if (gpsTaskHandle != NULL)
+    vTaskResume(gpsTaskHandle);
+  if (updateSpeedHandle != NULL)
+    vTaskResume(updateSpeedHandle);
+  if (updateRPMHandle != NULL)
+    vTaskResume(updateRPMHandle);
+  DEBUG("[TASK] Tasks resumed after GPS rate change.");
+}
+
 void showState(void *arg)
 {
   while (1)
@@ -127,7 +152,7 @@ void updateSpeed(void *args)
       frequencySpeed = map(vehicleSpeed, 0, maxSpeed, 0, maxSpeed);
       setFrequencySpeed(frequencySpeed); // minimum speed may command 0 and setFreq. will cause crash, so +1 to error 'catch'  }
     }
-    vTaskDelay(1);
+    vTaskDelay(pdMS_TO_TICKS(1));
   }
 }
 
@@ -160,7 +185,7 @@ void updateRPM(void *args)
       frequencyRPM = map(vehicleRPM, 0, clusterRPMLimit, 0, maxRPM);
       setFrequencyRPM(frequencyRPM); // minimum speed may command 0 and setFreq. will cause crash, so +1 to error 'catch'
     }
-    vTaskDelay(1);
+    vTaskDelay(pdMS_TO_TICKS(1));
   }
 }
 

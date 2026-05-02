@@ -1,4 +1,5 @@
 #include "can2cluster_wifi.h"
+#include "can2cluster_gps.h"
 #include <ArduinoJson.h>
 #include <LittleFS.h>
 #include <Update.h>
@@ -53,6 +54,73 @@ static bool handleTestOutputControl(const String &key, JsonVariant value)
   return false;
 }
 
+static uint32_t parseCanId(const String &raw)
+{
+  String value = raw;
+  value.trim();
+  if (value.startsWith("0x") || value.startsWith("0X")) {
+    value = value.substring(2);
+  }
+
+  char *endPtr = nullptr;
+  unsigned long parsed = strtoul(value.c_str(), &endPtr, 16);
+  if (endPtr == value.c_str() || *endPtr != '\0') {
+    return broadcastSpeedID;
+  }
+
+  return static_cast<uint32_t>(parsed) & 0x7FF;
+}
+
+static bool handleBroadcastSpeedControl(const String &key, JsonVariant value)
+{
+  if (key == "broadcastSpeedEnabled") {
+    broadcastSpeedEnabled = value.as<bool>();
+    return true;
+  }
+  if (key == "broadcastSpeedID") {
+    if (value.is<const char*>()) {
+      broadcastSpeedID = parseCanId(String(value.as<const char*>()));
+    } else {
+      broadcastSpeedID = value.as<uint32_t>() & 0x7FF;
+    }
+    return true;
+  }
+  if (key == "broadcastSpeedDLC") {
+    broadcastSpeedDLC = constrain(value.as<int>(), 0, 8);
+    return true;
+  }
+  if (key == "broadcastSpeedLowByte") {
+    broadcastSpeedLowByte = constrain(value.as<int>(), 0, 7);
+    return true;
+  }
+  if (key == "broadcastSpeedHighByte") {
+    broadcastSpeedHighByte = constrain(value.as<int>(), 0, 7);
+    return true;
+  }
+  if (key == "broadcastSpeedLittleEndian") {
+    broadcastSpeedLittleEndian = value.as<bool>();
+    return true;
+  }
+  if (key == "broadcastSpeedScale") {
+    broadcastSpeedScale = value.as<float>();
+    return true;
+  }
+  if (key == "broadcastSpeedOffset") {
+    broadcastSpeedOffset = value.as<int>();
+    return true;
+  }
+
+  for (uint8_t i = 0; i < 8; i++) {
+    String dataKey = "broadcastSpeedData" + String(i);
+    if (key == dataKey) {
+      broadcastSpeedData[i] = constrain(value.as<int>(), 0, 255);
+      return true;
+    }
+  }
+
+  return false;
+}
+
 static bool handleTestAction(const String &action)
 {
   if (action == "needleSweep")
@@ -71,7 +139,7 @@ static bool handleTestAction(const String &action)
 
 void setupWebRoutes()
 {
-  // Serve static files from LittleFS
+  // Serve static files from LittleFS.
   server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html");
 
   server.on("/api/settings", HTTP_GET, [](AsyncWebServerRequest *request)
@@ -99,6 +167,18 @@ void setupWebRoutes()
     doc["testReverse"] = testReverse;
     doc["testEML"] = testEML;
     doc["testEPC"] = testEPC;
+    doc["broadcastSpeedEnabled"] = broadcastSpeedEnabled;
+    doc["broadcastSpeedID"] = broadcastSpeedID;
+    doc["broadcastSpeedDLC"] = broadcastSpeedDLC;
+    doc["broadcastSpeedLowByte"] = broadcastSpeedLowByte;
+    doc["broadcastSpeedHighByte"] = broadcastSpeedHighByte;
+    doc["broadcastSpeedLittleEndian"] = broadcastSpeedLittleEndian;
+    doc["broadcastSpeedScale"] = broadcastSpeedScale;
+    doc["broadcastSpeedOffset"] = broadcastSpeedOffset;
+    for (uint8_t i = 0; i < 8; i++) {
+      String dataKey = "broadcastSpeedData" + String(i);
+      doc[dataKey] = broadcastSpeedData[i];
+    }
     
     // Speed type selection
     if (useHall) doc["speedType"] = "Hall";
@@ -112,6 +192,7 @@ void setupWebRoutes()
     doc["rpmType"] = useHallRPM ? "Hall" : "CAN";
     doc["clusterFrequencyLimit"] = maxRPM;
     doc["clusterRPMLimit"] = clusterRPMLimit;
+    doc["gpsUpdateRateHz"] = gpsUpdateRateHz;
     
     // Diagnostic query status
     doc["autoDiagQuery"] = autoDiagQuery;
@@ -127,6 +208,8 @@ void setupWebRoutes()
     doc["hasGPS"] = hasGPS;
     doc["gpsSatellites"] = gpsSatellites;
     doc["gpsTaskSuspended"] = gpsTaskSuspended;
+    doc["gpsFrequency"] = getGPSUpdateFrequency();
+    doc["gpsAutoApplySecs"] = gpsAutoApplySecondsRemaining();
     doc["hallSpeed"] = hallSpeed;
     doc["ecuSpeed"] = ecuSpeed;
     doc["absSpeed"] = absSpeed;
@@ -153,6 +236,8 @@ void setupWebRoutes()
     doc["testEML"] = testEML;
     doc["testEPC"] = testEPC;
     doc["tempNeedleSweep"] = tempNeedleSweep;
+    doc["broadcastSpeedEnabled"] = broadcastSpeedEnabled;
+    doc["broadcastSpeedValue"] = broadcastSpeedValue;
     doc["freeHeap"] = ESP.getFreeHeap();
     
     /*
@@ -216,6 +301,12 @@ void setupWebRoutes()
     }
 
     if (handleTestOutputControl(key, value)) {
+      request->send(200, "application/json", "{\"ok\":true}");
+      return;
+    }
+
+    if (handleBroadcastSpeedControl(key, value)) {
+      eepDirty = true;  // settings changed — schedule a flash write
       request->send(200, "application/json", "{\"ok\":true}");
       return;
     }
@@ -309,6 +400,29 @@ void setupWebRoutes()
     handleTestAction(action);
     
     request->send(200, "application/json", "{\"ok\":true}"); });
+
+      server.on("/api/gpsRate", HTTP_POST, [](AsyncWebServerRequest *request) {}, nullptr, [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total)
+                {
+        if (index + len != total) return;
+
+        JsonDocument doc;
+        DeserializationError err = deserializeJson(doc, (const char*)data, len);
+        if (err) {
+          request->send(400, "application/json", "{\"success\":false,\"message\":\"Invalid JSON\"}");
+          return;
+        }
+
+        uint8_t rate = doc["rate"] | 0;
+        String resp;
+        bool ok = setGPSUpdateRate(rate, resp);
+
+        JsonDocument out;
+        out["success"] = ok;
+        out["message"] = resp;
+        String response;
+        serializeJson(out, response);
+        request->send(ok ? 200 : 400, "application/json", response);
+      });
 
   // OTA Update API endpoints
   server.on("/api/ota/info", HTTP_GET, [](AsyncWebServerRequest *request)

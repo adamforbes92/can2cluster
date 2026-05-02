@@ -22,4 +22,5 @@ V1.17 - revised needle sweep maths so it is smoother / race conditions not met
 V1.18 - added an error on GPS wiring
 
 V2.00 - added TP/UDS querying for DSG speed (for models that don't broadcast it on the CAN but support it via. diagnostics).  PlatformIO port.
+V2.01 - added GPS update rate configuration 
 */

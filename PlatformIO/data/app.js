@@ -30,6 +30,39 @@ function initNavigation() {
 }
 
 function initControls() {
+  const gpsRateSelect = document.getElementById('gpsRateSelect');
+  const setGpsRateBtn = document.getElementById('setGpsRateBtn');
+  const gpsRateResponse = document.getElementById('gpsRateResponse');
+  if (gpsRateSelect) {
+    const validRates = [1, 5, 10, 16];
+    gpsRateSelect.innerHTML = '';
+    validRates.forEach(rate => {
+      const opt = document.createElement('option');
+      opt.value = rate;
+      opt.textContent = rate + ' Hz';
+      gpsRateSelect.appendChild(opt);
+    });
+  }
+  if (setGpsRateBtn && gpsRateSelect && gpsRateResponse) {
+    setGpsRateBtn.addEventListener('click', async () => {
+      const rate = parseInt(gpsRateSelect.value, 10);
+      gpsRateResponse.textContent = 'Sending...';
+      try {
+        const resp = await fetch('/api/gpsRate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rate })
+        });
+        const data = await resp.json();
+        gpsRateResponse.textContent = data.message || (data.success ? 'Success' : 'Failed');
+        gpsRateResponse.style.color = data.success ? '#007a3d' : '#b00020';
+      } catch (e) {
+        gpsRateResponse.textContent = 'Error sending command.';
+        gpsRateResponse.style.color = '#b00020';
+      }
+    });
+  }
+
   // Dashboard controls
   const testBtn = document.getElementById('testNeedleSweep');
   if (testBtn) {
@@ -55,12 +88,32 @@ function initControls() {
   });
 
   // Advanced test controls
-  const advancedInputs = ['testRPM', 'tempRPM', 'testSpeedo', 'tempSpeed', 'testReverse', 'testEML', 'testEPC'];
+  const advancedInputs = [
+    'testRPM', 'tempRPM', 'testSpeedo', 'tempSpeed',
+    'broadcastSpeedEnabled', 'broadcastSpeedID', 'broadcastSpeedDLC',
+    'broadcastSpeedLowByte', 'broadcastSpeedHighByte', 'broadcastSpeedLittleEndian',
+    'broadcastSpeedScale', 'broadcastSpeedOffset',
+    'broadcastSpeedData0', 'broadcastSpeedData1', 'broadcastSpeedData2', 'broadcastSpeedData3',
+    'broadcastSpeedData4', 'broadcastSpeedData5', 'broadcastSpeedData6', 'broadcastSpeedData7',
+    'testReverse', 'testEML', 'testEPC'
+  ];
   advancedInputs.forEach(id => {
     const el = document.getElementById(id);
     if (el) {
       el.addEventListener('change', () => {
-        const value = el.type === 'checkbox' ? el.checked : el.value;
+        let value;
+        if (el.type === 'checkbox') {
+          value = el.checked;
+        } else if (el.type === 'number' || el.type === 'range') {
+          value = Number(el.value);
+        } else if (id === 'broadcastSpeedLittleEndian') {
+          value = el.value === 'true';
+        } else if (id === 'broadcastSpeedID') {
+          value = el.value.trim();
+        } else {
+          value = el.value;
+        }
+
         pushControl(id, value);
         
         // Update highlighting when test states change
@@ -179,6 +232,21 @@ async function fetchSettings() {
     tempSpeedDisplay.textContent = data.tempSpeed || 0;
     tempSpeedDisplay.style.color = data.testSpeedo ? 'orange' : '';
 
+    document.getElementById('broadcastSpeedEnabled').checked = data.broadcastSpeedEnabled || false;
+    document.getElementById('broadcastSpeedID').value = (data.broadcastSpeedID || 0).toString(16).toUpperCase();
+    document.getElementById('broadcastSpeedDLC').value = data.broadcastSpeedDLC ?? 8;
+    document.getElementById('broadcastSpeedLowByte').value = data.broadcastSpeedLowByte ?? 3;
+    document.getElementById('broadcastSpeedHighByte').value = data.broadcastSpeedHighByte ?? 2;
+    document.getElementById('broadcastSpeedLittleEndian').value = (data.broadcastSpeedLittleEndian ? 'true' : 'false');
+    document.getElementById('broadcastSpeedScale').value = (data.broadcastSpeedScale ?? 1.0).toFixed(3);
+    document.getElementById('broadcastSpeedOffset').value = data.broadcastSpeedOffset ?? 0;
+    for (let i = 0; i < 8; i += 1) {
+      const dataEl = document.getElementById(`broadcastSpeedData${i}`);
+      if (dataEl) {
+        dataEl.value = data[`broadcastSpeedData${i}`] ?? 0;
+      }
+    }
+
     // Test outputs
     document.getElementById('testReverse').checked = data.testReverse || false;
     document.getElementById('testEML').checked = data.testEML || false;
@@ -203,6 +271,11 @@ async function fetchSettings() {
     const clusterRPMLimitValue = data.clusterRPMLimit || 7000;
     document.getElementById('clusterRPMLimit').value = clusterRPMLimitValue;
     document.getElementById('clusterRPMLimit-display').textContent = clusterRPMLimitValue;
+
+    if (document.getElementById('gpsRateSelect')) {
+      const savedGpsRate = String(data.gpsUpdateRateHz ?? 1);
+      document.getElementById('gpsRateSelect').value = savedGpsRate;
+    }
 
     // Update FW version
     const fwResponse = await fetch('/api/settings');
@@ -273,6 +346,15 @@ async function fetchStatus() {
       } else {
         document.getElementById('liveGPSStatus').textContent = 'Not Connected';
       }
+    }
+    if (document.getElementById('liveGPSFrequency')) {
+      const rawFreq = data.gpsFrequency;
+      const freq = (typeof rawFreq === 'number') ? rawFreq : Number(rawFreq);
+      document.getElementById('liveGPSFrequency').textContent = Number.isFinite(freq) ? freq.toFixed(2) : '--';
+    }
+    if (document.getElementById('liveBroadcastSpeedValue')) {
+      const suffix = data.broadcastSpeedEnabled ? '' : ' (disabled)';
+      document.getElementById('liveBroadcastSpeedValue').textContent = `${data.broadcastSpeedValue || 0}${suffix}`;
     }
 
     // System status (read-only, not settings)

@@ -13,6 +13,8 @@ Forbes-Automotive, 2025
 */
 
 #include "can2cluster_defs.h"
+#include "can2cluster_gps.h"
+#include "can2cluster_io.h"
 
 // for GPS
 SoftwareSerial ss(pinRX_GPS, pinTX_GPS);
@@ -38,6 +40,19 @@ void setup() {
 }
 
 void loop() {
+  // Apply GPS rate from EEPROM after satellite lock (flagged by parseGPS).
+  // Tasks are suspended for the duration so the delay() calls inside
+  // setGPSUpdateRate() are not disrupted by higher-priority core-1 tasks.
+  // The API path doesn't need this because AsyncTCP callbacks run on core 0.
+  if (gpsAutoRateApplyPending())
+  {
+    tasksSuspendAll();
+    String resp;
+    bool ok = setGPSUpdateRate(gpsUpdateRateHz, resp);
+    tasksResumeAll();
+    DEBUG("[GPS Auto] Rate apply %s: %s", ok ? "OK" : "FAILED", resp.c_str());
+  }
+
   updateButtons();
 
   if (selfTest) {

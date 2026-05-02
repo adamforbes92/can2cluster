@@ -16,7 +16,7 @@
 #include <ESPmDNS.h>         // included for WiFi pages
 #include <OneButton.h>
 
-#define FW_VERSION "2.00"
+#define FW_VERSION "2.01"
 
 /* Defines */
 // Debug statements
@@ -24,8 +24,8 @@
 #define ChassisCANDebug 0     // if 1, will print CAN 2 (Chassis) messages ** CAN CHANGE THIS **
 #define serialDebugWifi 0     // for wifi feedback
 #define serialDebugEEP 0      // for EEP Serial feedback
-#define serialDebugGPS 0      // for GPS Serial feedback
-#define serialDebugPaddles 1  // for Paddle Serial feedback
+#define serialDebugGPS 1      // for GPS Serial feedback
+#define serialDebugPaddles 0  // for Paddle Serial feedback
 #define serialDebugDSG 0      // for DSG Serial feedback
 #define serialDebugIO 0       // for General IO Serial feedback
 #define detailedDebugStack 0
@@ -247,12 +247,23 @@ extern bool hasGPS;           // bool for 'has GPS' >1 satellite
 extern bool gpsError;
 extern bool gpsTaskSuspended; // true when gps task is suspended due no data
 extern uint32_t lastGPSCharMillis;
+extern uint8_t gpsUpdateRateHz; // persisted GPS update rate: 1/5/10/16 Hz
 extern TaskHandle_t gpsTaskHandle;
 extern TaskHandle_t updateSpeedHandle;
 extern TaskHandle_t updateRPMHandle;
 extern bool tempNeedleSweep;  // bool to set flag for temp needle sweep (for testing)
 extern bool testSpeedo;       // for testing only, vary final pwmFrequency for speed
 extern bool testRPM;          // for testing only, vary final pwmFrequency for RPM
+extern bool broadcastSpeedEnabled;   // bool to enable speed CAN frame broadcast
+extern uint32_t broadcastSpeedID;    // CAN ID used for speed broadcast frames
+extern uint8_t broadcastSpeedDLC;    // DLC used for speed broadcast frames (0-8)
+extern uint8_t broadcastSpeedLowByte;   // payload byte index for speed low byte
+extern uint8_t broadcastSpeedHighByte;  // payload byte index for speed high byte
+extern bool broadcastSpeedLittleEndian; // true = low/high order, false = high/low
+extern float broadcastSpeedScale;     // scale applied to final vehicleSpeed before send
+extern int16_t broadcastSpeedOffset;  // offset applied after scaling before send
+extern uint16_t broadcastSpeedValue;  // last computed value packed into speed frame
+extern uint8_t broadcastSpeedData[8]; // static payload template bytes
 extern bool tempShiftLight;   // for testing only, flash EML/EPC if set
 extern bool testEML;          // bool to force turn on EML
 extern bool testEPC;          // bool to force turn on EPC
