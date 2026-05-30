@@ -16,15 +16,15 @@
 #include <ESPmDNS.h>         // included for WiFi pages
 #include <OneButton.h>
 
-#define FW_VERSION "2.01"
+#define FW_VERSION "3.00"
 
 /* Defines */
 // Debug statements
-#define serialDebug 1         // if 1, will use Serial talkback ** CAN CHANGE THIS **
+#define serialDebug 0         // if 1, will use Serial talkback ** CAN CHANGE THIS **
 #define ChassisCANDebug 0     // if 1, will print CAN 2 (Chassis) messages ** CAN CHANGE THIS **
 #define serialDebugWifi 0     // for wifi feedback
 #define serialDebugEEP 0      // for EEP Serial feedback
-#define serialDebugGPS 1      // for GPS Serial feedback
+#define serialDebugGPS 0      // for GPS Serial feedback
 #define serialDebugPaddles 0  // for Paddle Serial feedback
 #define serialDebugDSG 0      // for DSG Serial feedback
 #define serialDebugIO 0       // for General IO Serial feedback
@@ -52,6 +52,7 @@ extern OneButton btnPadDown;
 
 // setup - tweaky things
 #define shiftLightRate 100  // flash EPC at xx ms.  Decreasing may lead to a 'constant' light because of the human eye... ** CAN CHANGE THIS **
+#define durationReset 1500  // ms with no pulse before Hall/RPM input is considered stale and reset to 0
 
 // setup - cluster RPM & speed limits
 extern uint16_t clusterRPMLimit;  // rpm limit of the cluster face
@@ -206,9 +207,10 @@ extern uint8_t lever_raw;  // lever 'raw' data from DSG
 extern uint32_t lastMillis;       // Counter for sending frames x ms
 extern uint32_t lastMillis2;      // Counter for sending frames x ms
 extern uint32_t lastCAN;   // last CAN message
-extern unsigned long lastPulse;
-extern unsigned long dutyCycleIncoming;  // Duty Cycle % coming in from Can2Cluster or Hall
-extern unsigned long dutyCycleMotor;     // incoming engine RPM pulse frequency (Hz)
+extern volatile unsigned long lastPulse;
+extern volatile unsigned long dutyCycleIncoming;  // Duty Cycle % coming in from Can2Cluster or Hall
+extern volatile unsigned long dutyCycleMotor;     // incoming engine RPM pulse frequency (Hz)
+extern volatile unsigned long lastPulseRPM;       // timestamp of last engine RPM pulse
 
 // ECU variables
 extern bool vehicleEML;          // current EML light status
@@ -233,7 +235,8 @@ extern bool useECU;   // type of speed input to use: ECU via. CAN (MOTOR2_ID)
 extern bool useDSG;   // type of speed input to use: DSG via. CAN (parseDSG) - based on RPM/Current Gear (ratios are key!)
 extern bool useGPS;   // type of speed input to use: GPS Module (Neo6M)
 extern bool useABS;   // type of speed input to use: ABS via. CAN (BRAKES3_ID)
-extern bool useTPUDSDSG;  // type of speed input to use: TP/UDS DSG speed via. CAN
+extern bool useTP20;  // type of speed input to use: TP2.0 DSG speed via. CAN
+extern bool useUDS;   // type of speed input to use: UDS speed via. CAN
 extern bool useHallRPM;   // type of RPM input to use: hall pulse (GPIO39) vs CAN
 extern bool coilType;  // has 'old' RPM output
 
@@ -242,11 +245,10 @@ extern bool triggerLED;       // bool to flipfloo LED
 extern bool selfTest;         // increase RPM/speed slowly, flash lights.  For debug only, disable on release!
 extern bool hasNeedleSweep;   // do needle sweep on power up?
 extern bool hasCAN;           // bool for 'has CAN' coming in
-extern volatile bool eepDirty;  // true when settings have changed and need saving
+
 extern bool hasGPS;           // bool for 'has GPS' >1 satellite
+extern bool gpsUnavailable;   // true when GPS hardware not responding (timeout)
 extern bool gpsError;
-extern bool gpsTaskSuspended; // true when gps task is suspended due no data
-extern uint32_t lastGPSCharMillis;
 extern uint8_t gpsUpdateRateHz; // persisted GPS update rate: 1/5/10/16 Hz
 extern TaskHandle_t gpsTaskHandle;
 extern TaskHandle_t updateSpeedHandle;
@@ -254,6 +256,14 @@ extern TaskHandle_t updateRPMHandle;
 extern bool tempNeedleSweep;  // bool to set flag for temp needle sweep (for testing)
 extern bool testSpeedo;       // for testing only, vary final pwmFrequency for speed
 extern bool testRPM;          // for testing only, vary final pwmFrequency for RPM
+extern bool useAftermarket;           // speed input: custom CAN (aftermarket)
+extern uint32_t aftermarketSpeedID;      // CAN ID to listen on for aftermarket speed
+extern uint8_t aftermarketSpeedLowByte;  // byte index holding the speed LSB
+extern uint8_t aftermarketSpeedHighByte; // byte index holding the speed MSB
+extern bool aftermarketSpeedLittleEndian; // true = LSB at lowByte index
+extern float aftermarketSpeedScale;      // scale applied to raw value
+extern int16_t aftermarketSpeedOffset;   // offset applied after scale
+extern double aftermarketSpeed;          // parsed speed from aftermarket CAN frame
 extern bool broadcastSpeedEnabled;   // bool to enable speed CAN frame broadcast
 extern uint32_t broadcastSpeedID;    // CAN ID used for speed broadcast frames
 extern uint8_t broadcastSpeedDLC;    // DLC used for speed broadcast frames (0-8)
@@ -365,8 +375,15 @@ extern void disconnectWifi();
 extern void setupUI();
 
 extern bool autoDiagQuery;
-extern double dsgUDSSpeed;
+extern double dsgUDSSpeed;    // legacy alias (TP2.0 DSG speed)
 extern double haldexUDSSpeed;
+extern uint16_t tp20Speed;    // speed from TP2.0 protocol
+extern uint16_t udsSpeed;     // speed from UDS protocol
+
+// SavvyCAN / Analyzer
+extern bool    analyzerMode;     // WiFi GVRET/SLCAN (TCP port 23)
+extern bool    analyzerSerial;   // Serial GVRET (SavvyCAN over USB, 1 Mbaud)
+extern uint8_t analyzerProtocol; // ANALYZER_PROTOCOL_GVRET or ANALYZER_PROTOCOL_LAWICEL
 extern uint8_t gpsSatellites;
 
 extern int label_speedDSGUds;

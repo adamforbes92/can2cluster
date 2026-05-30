@@ -15,6 +15,7 @@ Forbes-Automotive, 2025
 #include "can2cluster_defs.h"
 #include "can2cluster_gps.h"
 #include "can2cluster_io.h"
+#include "can2cluster_savvycan.h"
 
 // for GPS
 SoftwareSerial ss(pinRX_GPS, pinTX_GPS);
@@ -32,11 +33,14 @@ void setup() {
   setupTasks();  // setup tasks for each of the main functions - CAN Chassis/Haldex handling, Serial prints, Standalone, etc - in '_io.ino'
 
   if (hasNeedleSweep) {
-    needleSweep();  // carry out needle sweep if defined
+    tasksSuspendAll();
+    needleSweep();
+    tasksResumeAll();
   }
 
   connectWifi();         // enable / start WiFi
   setupUI();             // setup wifi user interface
+  setupAnalyzer();       // SavvyCAN/GVRET analyzer (TCP:23 or Serial 1Mbaud)
 }
 
 void loop() {
@@ -59,9 +63,11 @@ void loop() {
     diagTest();  // purely for bench debugging
   }
 
-  if (tempNeedleSweep) {  // only here if tested in WiFi
+  if (tempNeedleSweep) {
+    tasksSuspendAll();
     needleSweep();
-    tempNeedleSweep = false;  // reset the flag
+    tasksResumeAll();
+    tempNeedleSweep = false;
   }
 
   delay(10);

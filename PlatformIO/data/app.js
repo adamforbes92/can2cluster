@@ -6,7 +6,6 @@ let settingsLoaded = false;
 function initApp() {
   initNavigation();
   initControls();
-  initOTA();
   fetchSettings();  // Load settings once on page load
   fetchStatus();    // Initial status fetch
   setInterval(fetchStatus, 1000);  // Continue fetching live data only
@@ -47,6 +46,7 @@ function initControls() {
     setGpsRateBtn.addEventListener('click', async () => {
       const rate = parseInt(gpsRateSelect.value, 10);
       gpsRateResponse.textContent = 'Sending...';
+      window.gpsRateUserMessageUntil = Date.now() + 4000;
       try {
         const resp = await fetch('/api/gpsRate', {
           method: 'POST',
@@ -56,9 +56,11 @@ function initControls() {
         const data = await resp.json();
         gpsRateResponse.textContent = data.message || (data.success ? 'Success' : 'Failed');
         gpsRateResponse.style.color = data.success ? '#007a3d' : '#b00020';
+        window.gpsRateUserMessageUntil = Date.now() + 4000;
       } catch (e) {
         gpsRateResponse.textContent = 'Error sending command.';
         gpsRateResponse.style.color = '#b00020';
+        window.gpsRateUserMessageUntil = Date.now() + 4000;
       }
     });
   }
@@ -73,6 +75,16 @@ function initControls() {
   const testShiftBtn = document.getElementById('testShiftLight');
   if (testShiftBtn) {
     testShiftBtn.addEventListener('click', () => pushAction('testShiftLight'));
+  }
+
+  const otaUploadBtn = document.getElementById('otaUploadBtn');
+  if (otaUploadBtn) {
+    otaUploadBtn.addEventListener('click', uploadFirmware);
+  }
+
+  const otaFsUploadBtn = document.getElementById('otaFsUploadBtn');
+  if (otaFsUploadBtn) {
+    otaFsUploadBtn.addEventListener('click', uploadFilesystem);
   }
 
   // Configuration controls
@@ -95,6 +107,8 @@ function initControls() {
     'broadcastSpeedScale', 'broadcastSpeedOffset',
     'broadcastSpeedData0', 'broadcastSpeedData1', 'broadcastSpeedData2', 'broadcastSpeedData3',
     'broadcastSpeedData4', 'broadcastSpeedData5', 'broadcastSpeedData6', 'broadcastSpeedData7',
+    'aftermarketSpeedID', 'aftermarketSpeedLowByte', 'aftermarketSpeedHighByte',
+    'aftermarketSpeedLittleEndian', 'aftermarketSpeedScale', 'aftermarketSpeedOffset',
     'testReverse', 'testEML', 'testEPC'
   ];
   advancedInputs.forEach(id => {
@@ -106,9 +120,9 @@ function initControls() {
           value = el.checked;
         } else if (el.type === 'number' || el.type === 'range') {
           value = Number(el.value);
-        } else if (id === 'broadcastSpeedLittleEndian') {
+        } else if (id === 'broadcastSpeedLittleEndian' || id === 'aftermarketSpeedLittleEndian') {
           value = el.value === 'true';
-        } else if (id === 'broadcastSpeedID') {
+        } else if (id === 'broadcastSpeedID' || id === 'aftermarketSpeedID') {
           value = el.value.trim();
         } else {
           value = el.value;
@@ -145,9 +159,16 @@ function initControls() {
 
   // Speed source dropdown
   const speedSourceEl = document.getElementById('speedSource');
+  function updateCustomCANVisibility() {
+    const card = document.getElementById('customCANInputCard');
+    if (card && speedSourceEl) {
+      card.style.display = speedSourceEl.value === 'Custom CAN' ? '' : 'none';
+    }
+  }
   if (speedSourceEl) {
     speedSourceEl.addEventListener('change', () => {
       pushControl('speedType', speedSourceEl.value);
+      updateCustomCANVisibility();
     });
   }
 
@@ -201,6 +222,27 @@ function initControls() {
       pushControl('clusterRPMLimit', 7000);
     });
   }
+
+  const maxFreqHallEl = document.getElementById('maxFreqHall');
+  if (maxFreqHallEl) {
+    maxFreqHallEl.addEventListener('change', () => {
+      pushControl('maxFreqHall', Number(maxFreqHallEl.value));
+    });
+    maxFreqHallEl.addEventListener('input', () => {
+      const displayEl = document.getElementById('maxFreqHall-display');
+      if (displayEl) displayEl.textContent = maxFreqHallEl.value;
+    });
+  }
+
+  const resetMaxFreqHallBtn = document.getElementById('resetMaxFreqHall');
+  if (resetMaxFreqHallBtn && maxFreqHallEl) {
+    resetMaxFreqHallBtn.addEventListener('click', () => {
+      maxFreqHallEl.value = 200;
+      const displayEl = document.getElementById('maxFreqHall-display');
+      if (displayEl) displayEl.textContent = '200';
+      pushControl('maxFreqHall', 200);
+    });
+  }
 }
 
 async function fetchSettings() {
@@ -247,6 +289,14 @@ async function fetchSettings() {
       }
     }
 
+    // Aftermarket / Custom CAN input settings
+    document.getElementById('aftermarketSpeedID').value = (data.aftermarketSpeedID || 0).toString(16).toUpperCase();
+    document.getElementById('aftermarketSpeedLowByte').value = data.aftermarketSpeedLowByte ?? 0;
+    document.getElementById('aftermarketSpeedHighByte').value = data.aftermarketSpeedHighByte ?? 1;
+    document.getElementById('aftermarketSpeedLittleEndian').value = (data.aftermarketSpeedLittleEndian ? 'true' : 'false');
+    document.getElementById('aftermarketSpeedScale').value = (data.aftermarketSpeedScale ?? 1.0).toFixed(3);
+    document.getElementById('aftermarketSpeedOffset').value = data.aftermarketSpeedOffset ?? 0;
+
     // Test outputs
     document.getElementById('testReverse').checked = data.testReverse || false;
     document.getElementById('testEML').checked = data.testEML || false;
@@ -259,7 +309,10 @@ async function fetchSettings() {
     else if (data.speedType === 'DSG') speedTypeValue = 'DSG';
     else if (data.speedType === 'TP2.0-DSG' || data.speedType === 'TP/UDS DSG') speedTypeValue = 'TP2.0-DSG';
     else if (data.speedType === 'GPS') speedTypeValue = 'GPS';
+    else if (data.speedType === 'Custom CAN') speedTypeValue = 'Custom CAN';
     document.getElementById('speedSource').value = speedTypeValue;
+    const customCANCard = document.getElementById('customCANInputCard');
+    if (customCANCard) customCANCard.style.display = speedTypeValue === 'Custom CAN' ? '' : 'none';
 
     const rpmTypeValue = data.rpmType === 'Hall' ? 'Hall' : 'CAN';
     document.getElementById('rpmSource').value = rpmTypeValue;
@@ -272,6 +325,13 @@ async function fetchSettings() {
     document.getElementById('clusterRPMLimit').value = clusterRPMLimitValue;
     document.getElementById('clusterRPMLimit-display').textContent = clusterRPMLimitValue;
 
+    const maxFreqHallValue = data.maxFreqHall || 200;
+    const maxFreqHallEl2 = document.getElementById('maxFreqHall');
+    if (maxFreqHallEl2) {
+      maxFreqHallEl2.value = maxFreqHallValue;
+      document.getElementById('maxFreqHall-display').textContent = maxFreqHallValue;
+    }
+
     if (document.getElementById('gpsRateSelect')) {
       const savedGpsRate = String(data.gpsUpdateRateHz ?? 1);
       document.getElementById('gpsRateSelect').value = savedGpsRate;
@@ -280,7 +340,11 @@ async function fetchSettings() {
     // Update FW version
     const fwResponse = await fetch('/api/settings');
     const fwData = await fwResponse.json();
-    document.getElementById('fwVersion').textContent = 'FW: ' + (fwData.FW_VERSION || '--');
+    const fwStr = 'FW: ' + (fwData.FW_VERSION || '--');
+    document.getElementById('fwVersion').textContent = fwStr;
+    if (document.getElementById('fwVersionOta')) {
+      document.getElementById('fwVersionOta').textContent = fwStr;
+    }
 
     settingsLoaded = true;
   } catch (error) {
@@ -338,10 +402,16 @@ async function fetchStatus() {
     if (document.getElementById('liveGPSSpeed')) {
       document.getElementById('liveGPSSpeed').textContent = data.gpsSpeed || '--';
     }
+    if (document.getElementById('liveAftermarketSpeed')) {
+      document.getElementById('liveAftermarketSpeed').textContent = data.aftermarketSpeed !== undefined ? Number(data.aftermarketSpeed).toFixed(1) : '--';
+    }
+    if (document.getElementById('liveAftermarketSpeedCard')) {
+      document.getElementById('liveAftermarketSpeedCard').textContent = data.aftermarketSpeed !== undefined ? Number(data.aftermarketSpeed).toFixed(1) : '--';
+    }
     if (document.getElementById('liveGPSStatus')) {
       if (data.hasGPS) {
         document.getElementById('liveGPSStatus').textContent = `Connected, ${data.gpsSatellites} satellites`;
-      } else if (data.gpsTaskSuspended) {
+      } else if (data.gpsUnavailable) {
         document.getElementById('liveGPSStatus').textContent = 'Unavailable';
       } else {
         document.getElementById('liveGPSStatus').textContent = 'Not Connected';
@@ -352,6 +422,25 @@ async function fetchStatus() {
       const freq = (typeof rawFreq === 'number') ? rawFreq : Number(rawFreq);
       document.getElementById('liveGPSFrequency').textContent = Number.isFinite(freq) ? freq.toFixed(2) : '--';
     }
+
+    // GPS auto rate countdown - show in the same green response area used by
+    // the Set button, but only when the user isn't actively reading their
+    // own click feedback.
+    const gpsRateResponseEl = document.getElementById('gpsRateResponse');
+    if (gpsRateResponseEl && (!window.gpsRateUserMessageUntil || Date.now() > window.gpsRateUserMessageUntil)) {
+      const secs = data.gpsAutoApplySecs;
+      if (typeof secs === 'number' && secs >= 0) {
+        gpsRateResponseEl.style.color = '#007a3d';
+        if (secs === 0) {
+          gpsRateResponseEl.textContent = 'Auto-applying saved rate...';
+        } else {
+          gpsRateResponseEl.textContent = `Auto-apply in ${secs}s (waiting for satellite lock + 20s).`;
+        }
+      } else if (gpsRateResponseEl.textContent.startsWith('Auto-apply') || gpsRateResponseEl.textContent.startsWith('Auto-applying')) {
+        gpsRateResponseEl.textContent = '';
+      }
+    }
+
     if (document.getElementById('liveBroadcastSpeedValue')) {
       const suffix = data.broadcastSpeedEnabled ? '' : ' (disabled)';
       document.getElementById('liveBroadcastSpeedValue').textContent = `${data.broadcastSpeedValue || 0}${suffix}`;
@@ -360,7 +449,15 @@ async function fetchStatus() {
     // System status (read-only, not settings)
     document.getElementById('canStatus').textContent = data.hasCAN ? 'CAN: Healthy' : 'CAN: Not Healthy';
     document.getElementById('canPresent').textContent = data.hasCAN ? 'Healthy' : 'Not Healthy';
-    document.getElementById('gpsPresent').textContent = data.hasGPS ? 'Yes' : 'No';
+    if (document.getElementById('gpsPresent')) {
+      if (data.hasGPS) {
+        document.getElementById('gpsPresent').textContent = `Connected (${data.gpsSatellites} sat)`;
+      } else if (data.gpsUnavailable) {
+        document.getElementById('gpsPresent').textContent = 'Unavailable';
+      } else {
+        document.getElementById('gpsPresent').textContent = 'Not Connected';
+      }
+    }
     
     // Output status with highlighting for tests
     const emlEl = document.getElementById('emlStatus');
@@ -438,134 +535,108 @@ function showNotification(message, type = "success") {
   }, 3000);
 }
 
-// OTA Update functionality
-function initOTA() {
-  fetchOTAInfo();
-  
-  const fileInput = document.getElementById('otaFileInput');
+async function uploadFirmware() {
+  const fileInput = document.getElementById('otaBinFile');
+  const statusEl = document.getElementById('otaStatus');
+  const progressEl = document.getElementById('otaProgress');
   const uploadBtn = document.getElementById('otaUploadBtn');
-  
-  if (fileInput) {
-    fileInput.addEventListener('change', (e) => {
-      const file = e.target.files[0];
-      if (file) {
-        if (!file.name.endsWith('.bin')) {
-          showNotification('Please select a .bin file', 'error');
-          fileInput.value = '';
-          document.getElementById('otaFileName').textContent = 'No file selected';
-          uploadBtn.disabled = true;
-          return;
-        }
-        document.getElementById('otaFileName').textContent = file.name + ` (${(file.size / 1024 / 1024).toFixed(2)} MB)`;
-        uploadBtn.disabled = false;
-      }
-    });
-  }
-  
-  if (uploadBtn) {
-    uploadBtn.addEventListener('click', startOTAUpdate);
-  }
-}
 
-async function fetchOTAInfo() {
-  try {
-    const response = await fetch('/api/ota/info');
-    const data = await response.json();
-    
-    document.getElementById('otaBoard').textContent = data.board || 'Unknown';
-    document.getElementById('otaHardware').textContent = data.hardware || 'Unknown';
-    document.getElementById('otaCurrentVersion').textContent = data.version || 'Unknown';
-  } catch (error) {
-    console.log('Error fetching OTA info:', error);
-    showNotification('Failed to fetch device information', 'error');
-  }
-}
-
-async function startOTAUpdate() {
-  const fileInput = document.getElementById('otaFileInput');
-  const file = fileInput.files[0];
-  
-  if (!file) {
-    showNotification('Please select a file', 'error');
+  if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
+    if (statusEl) statusEl.textContent = 'Please select a .bin file first';
     return;
   }
-  
-  const uploadBtn = document.getElementById('otaUploadBtn');
-  const progressContainer = document.getElementById('otaProgressContainer');
-  const progressFill = document.getElementById('otaProgressFill');
-  const progressPercent = document.getElementById('otaProgressPercent');
-  const statusMessage = document.getElementById('otaStatusMessage');
-  
-  uploadBtn.disabled = true;
-  fileInput.disabled = true;
-  progressContainer.style.display = 'block';
-  statusMessage.style.display = 'none';
-  
+
+  const file = fileInput.files[0];
   const formData = new FormData();
-  formData.append('file', file);
-  
-  try {
+  formData.append('firmware', file, file.name);
+
+  return new Promise((resolve) => {
     const xhr = new XMLHttpRequest();
-    
+    xhr.open('POST', '/api/ota');
+
+    if (uploadBtn) uploadBtn.disabled = true;
+    if (progressEl) { progressEl.style.display = 'block'; progressEl.value = 0; }
+
     xhr.upload.addEventListener('progress', (e) => {
       if (e.lengthComputable) {
-        const percent = Math.round((e.loaded / e.total) * 100);
-        progressFill.style.width = percent + '%';
-        progressPercent.textContent = percent + '%';
-        document.getElementById('otaProgressLabel').textContent = 
-          `Uploading... ${(e.loaded / 1024 / 1024).toFixed(2)} MB of ${(e.total / 1024 / 1024).toFixed(2)} MB`;
+        const pct = Math.round((e.loaded / e.total) * 100);
+        if (statusEl) statusEl.textContent = `Uploading... ${pct}%`;
+        if (progressEl) progressEl.value = pct;
       }
     });
-    
+
     xhr.addEventListener('load', () => {
       if (xhr.status === 200) {
-        const response = JSON.parse(xhr.responseText);
-        progressContainer.style.display = 'none';
-        statusMessage.style.display = 'block';
-        statusMessage.className = 'status-message success';
-        statusMessage.textContent = response.message || 'Update completed successfully! Device will reboot...';
-        showNotification('Firmware update started! Device will reboot.', 'success');
-        
-        // Reset form after delay
-        setTimeout(() => {
-          fileInput.value = '';
-          document.getElementById('otaFileName').textContent = 'No file selected';
-          uploadBtn.disabled = true;
-          fileInput.disabled = false;
-          fetchOTAInfo();
-        }, 3000);
+        if (statusEl) statusEl.textContent = 'Upload complete. Device rebooting...';
+        if (progressEl) progressEl.value = 100;
       } else {
-        const response = JSON.parse(xhr.responseText);
-        progressContainer.style.display = 'none';
-        statusMessage.style.display = 'block';
-        statusMessage.className = 'status-message error';
-        statusMessage.textContent = response.message || 'Update failed. Please try again.';
-        showNotification('Update failed: ' + (response.message || 'Unknown error'), 'error');
-        uploadBtn.disabled = false;
-        fileInput.disabled = false;
+        if (statusEl) statusEl.textContent = 'Upload failed. Please try again.';
+        if (progressEl) progressEl.style.display = 'none';
+        if (uploadBtn) uploadBtn.disabled = false;
+      }
+      resolve();
+    });
+
+    xhr.addEventListener('error', () => {
+      if (statusEl) statusEl.textContent = 'Upload failed. Check connection and retry.';
+      if (progressEl) progressEl.style.display = 'none';
+      if (uploadBtn) uploadBtn.disabled = false;
+      resolve();
+    });
+
+    xhr.send(formData);
+  });
+}
+
+async function uploadFilesystem() {
+  const fileInput = document.getElementById('otaFsBinFile');
+  const statusEl = document.getElementById('otaFsStatus');
+  const progressEl = document.getElementById('otaFsProgress');
+  const uploadBtn = document.getElementById('otaFsUploadBtn');
+
+  if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
+    if (statusEl) statusEl.textContent = 'Please select a .bin file first';
+    return;
+  }
+
+  const file = fileInput.files[0];
+  const formData = new FormData();
+  formData.append('filesystem', file, file.name);
+
+  return new Promise((resolve) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/ota/fs');
+
+    if (uploadBtn) uploadBtn.disabled = true;
+    if (progressEl) { progressEl.style.display = 'block'; progressEl.value = 0; }
+
+    xhr.upload.addEventListener('progress', (e) => {
+      if (e.lengthComputable) {
+        const pct = Math.round((e.loaded / e.total) * 100);
+        if (statusEl) statusEl.textContent = `Uploading... ${pct}%`;
+        if (progressEl) progressEl.value = pct;
       }
     });
-    
-    xhr.addEventListener('error', () => {
-      progressContainer.style.display = 'none';
-      statusMessage.style.display = 'block';
-      statusMessage.className = 'status-message error';
-      statusMessage.textContent = 'Network error during upload. Please try again.';
-      showNotification('Network error during upload', 'error');
-      uploadBtn.disabled = false;
-      fileInput.disabled = false;
+
+    xhr.addEventListener('load', () => {
+      if (xhr.status === 200) {
+        if (statusEl) statusEl.textContent = 'Upload complete. Device rebooting...';
+        if (progressEl) progressEl.value = 100;
+      } else {
+        if (statusEl) statusEl.textContent = 'Upload failed. Please try again.';
+        if (progressEl) progressEl.style.display = 'none';
+        if (uploadBtn) uploadBtn.disabled = false;
+      }
+      resolve();
     });
-    
-    xhr.open('POST', '/api/ota/upload');
+
+    xhr.addEventListener('error', () => {
+      if (statusEl) statusEl.textContent = 'Upload failed. Check connection and retry.';
+      if (progressEl) progressEl.style.display = 'none';
+      if (uploadBtn) uploadBtn.disabled = false;
+      resolve();
+    });
+
     xhr.send(formData);
-    
-  } catch (error) {
-    console.log('Error starting OTA update:', error);
-    progressContainer.style.display = 'none';
-    statusMessage.style.display = 'block';
-    statusMessage.className = 'status-message error';
-    statusMessage.textContent = 'Error: ' + error.message;
-    uploadBtn.disabled = false;
-    fileInput.disabled = false;
-  }
+  });
 }

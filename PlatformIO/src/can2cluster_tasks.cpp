@@ -1,4 +1,5 @@
 #include "can2cluster_io.h"
+#include "can2cluster_uds.h"
 
 void setupTasks()
 {
@@ -7,12 +8,12 @@ void setupTasks()
 
   // Core 1: All IO — CAN TX, GPS, speed/RPM output, EEPROM, DSG calc
   xTaskCreatePinnedToCore(writeEEP,       "writeEEP",       2000, NULL,  2, NULL,    1);
-  xTaskCreatePinnedToCore(queryECUTask,   "queryECUTask",   4000, NULL,  3, NULL,    1);
+  xTaskCreatePinnedToCore(taskTP20,       "taskTP20",       4096, NULL,  3, NULL,    1);
+  xTaskCreatePinnedToCore(taskUDS,        "taskUDS",        4096, NULL,  3, NULL,    1);
   xTaskCreatePinnedToCore(parseDSG,       "parseDSG",       6000, NULL,  4, NULL,    1);
   xTaskCreatePinnedToCore(broadcastGRA,   "broadcastGRA",   4000, NULL,  5, NULL,    1);
   xTaskCreatePinnedToCore(broadcastSpeed, "broadcastSpeed", 4000, NULL,  6, NULL,    1);
   xTaskCreatePinnedToCore(parseGPS,       "parseGPS",       6000, NULL,  7, &gpsTaskHandle, 1);
-  xTaskCreatePinnedToCore(gpsResumeTask,  "gpsResumeTask",  3000, NULL,  8, NULL,    1);
   xTaskCreatePinnedToCore(updateSpeed,    "updateSpeed",    4096, NULL,  9, &updateSpeedHandle, 1);
   xTaskCreatePinnedToCore(updateRPM,      "updateRPM",      4096, NULL, 10, &updateRPMHandle,   1);
   xTaskCreatePinnedToCore(outputControlTask, "outputControlTask", 4096, NULL, 11, NULL, 1);
@@ -111,12 +112,25 @@ void updateSpeed(void *args)
 
     if (!tempNeedleSweep)
     { // only here if tested in WiFi
+
+      // Reset Hall speed if no pulse has arrived within durationReset ms
+      if ((millis() + 10 - lastPulse) > durationReset)
+      {
+        dutyCycleIncoming = 0;
+        hallSpeed = 0;
+      }
+      else
+      {
+        hallSpeed = map(dutyCycleIncoming, 0, maxFreqHall, 0, maxSpeed);
+      }
+
       if (testSpeedo)
       {
         vehicleSpeed = tempSpeed;
       }
       else
       {
+        vehicleSpeed = 0; // reset so that if no source is active, output goes to zero
         if (useHall)
         {
           vehicleSpeed = hallSpeed;
@@ -133,13 +147,21 @@ void updateSpeed(void *args)
         {
           vehicleSpeed = int(dsgSpeed);
         }
-        if (useTPUDSDSG)
+        if (useTP20)
         {
-          vehicleSpeed = int(dsgUDSSpeed);
+          vehicleSpeed = int(tp20Speed);
+        }
+        if (useUDS)
+        {
+          vehicleSpeed = int(udsSpeed);
         }
         if (useGPS)
         {
           vehicleSpeed = int(gpsSpeed);
+        }
+        if (useAftermarket)
+        {
+          vehicleSpeed = int(aftermarketSpeed);
         }
       }
 
@@ -171,10 +193,19 @@ void updateRPM(void *args)
       }
       else
       {
-        if (useHallRPM)
+      if (useHallRPM)
         {
-          unsigned long clampedMotorHz = dutyCycleMotor > maxRPM ? maxRPM : dutyCycleMotor;
-          vehicleRPM = map(clampedMotorHz, 0, maxRPM, 0, clusterRPMLimit);
+          // Reset RPM if no pulse has arrived within durationReset ms
+          if ((millis() + 10 - lastPulseRPM) > durationReset)
+          {
+            dutyCycleMotor = 0;
+            vehicleRPM = 0;
+          }
+          else
+          {
+            unsigned long clampedMotorHz = dutyCycleMotor > maxRPM ? maxRPM : dutyCycleMotor;
+            vehicleRPM = map(clampedMotorHz, 0, maxRPM, 0, clusterRPMLimit);
+          }
         }
         else
         {

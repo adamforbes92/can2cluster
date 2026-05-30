@@ -9,5 +9,7 @@
 #include "can2cluster_eep.h"
 #include "can2cluster_gps.h"
 #include "can2cluster_wifi.h"
+#include "can2cluster_uds.h"
+#include "can2cluster_savvycan.h"
 
 #endif // CAN2CLUSTER_H

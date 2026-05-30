@@ -1,10 +1,18 @@
 #include "can2cluster_can.h"
-#include "vw_uds.h"
+#include "can2cluster_uds.h"
+#include "can2cluster_savvycan.h"
 
 void canInit()
 {
   // Configure TWAI (CAN) controller
   twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT((gpio_num_t)pinTX_CAN, (gpio_num_t)pinRX_CAN, TWAI_MODE_NORMAL);
+  g_config.rx_queue_len = 256;
+  // Enable alerts so we can detect (and recover from) error-passive / bus-off events.
+  g_config.alerts_enabled = TWAI_ALERT_BUS_OFF
+                          | TWAI_ALERT_BUS_RECOVERED
+                          | TWAI_ALERT_ERR_PASS
+                          | TWAI_ALERT_ABOVE_ERR_WARN
+                          | TWAI_ALERT_RX_QUEUE_FULL;
   twai_timing_config_t t_config = TWAI_TIMING_CONFIG_500KBITS();
   twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
 
@@ -24,6 +32,9 @@ void canInit()
 
   // Create a task to handle incoming CAN messages
   xTaskCreate(canReceiveTask, "canReceiveTask", 4096, NULL, 5, NULL);
+
+  // Create a task to watch TWAI alerts and recover from bus-off
+  xTaskCreate(canMonitorTask, "canMonitorTask", 3072, NULL, 4, NULL);
 }
 
 void canReceiveTask(void *args)
@@ -34,8 +45,74 @@ void canReceiveTask(void *args)
     while (twai_receive(&rx_frame, 0) == ESP_OK)
     {
       onBodyRX(rx_frame);
+      // Forward to SavvyCAN analyzer (no-op when analyzerMode and analyzerSerial are both false)
+      analyzerQueueFrame(rx_frame, 0);
+      // Route TP2.0 frames to the TP2.0 task queue
+      if (tp20RxQueue &&
+          (rx_frame.identifier == TP20_DSG_SETUP_RX ||
+           rx_frame.identifier == TP20_RX_ID)) {
+        xQueueSendToBack(tp20RxQueue, &rx_frame, 0);
+      }
+      // Route UDS response frames to the UDS task queue
+      if (udsRxQueue && rx_frame.identifier == UDS_RX_ID) {
+        xQueueSendToBack(udsRxQueue, &rx_frame, 0);
+      }
     }
     vTaskDelay(1);
+  }
+}
+
+// Monitors TWAI alerts and drives bus-off recovery.
+//
+// Sequence on bus-off:
+//   1. TWAI_ALERT_BUS_OFF fires.
+//   2. We call twai_initiate_recovery(), which puts the controller into
+//      "recovering" state. The controller waits for 128 occurrences of
+//      11 consecutive recessive bits before returning to "stopped".
+//   3. TWAI_ALERT_BUS_RECOVERED fires when that completes.
+//   4. We call twai_start() to bring the driver back online.
+void canMonitorTask(void *args)
+{
+  while (1)
+  {
+    uint32_t alerts = 0;
+    // Block up to 1 s waiting for an alert. read_alerts also clears the bits.
+    if (twai_read_alerts(&alerts, pdMS_TO_TICKS(1000)) != ESP_OK)
+    {
+      continue;
+    }
+
+    if (alerts & TWAI_ALERT_ABOVE_ERR_WARN)
+    {
+      DEBUG("TWAI: error counter above warning level");
+    }
+    if (alerts & TWAI_ALERT_ERR_PASS)
+    {
+      DEBUG("TWAI: error-passive state entered");
+    }
+    if (alerts & TWAI_ALERT_RX_QUEUE_FULL)
+    {
+      DEBUG("TWAI: RX queue full — frames dropped");
+    }
+    if (alerts & TWAI_ALERT_BUS_OFF)
+    {
+      DEBUG("TWAI: BUS-OFF — initiating recovery");
+      hasCAN = false;
+      esp_err_t r = twai_initiate_recovery();
+      if (r != ESP_OK)
+      {
+        DEBUG("TWAI: twai_initiate_recovery() returned %d", (int)r);
+      }
+    }
+    if (alerts & TWAI_ALERT_BUS_RECOVERED)
+    {
+      DEBUG("TWAI: bus recovered — restarting driver");
+      esp_err_t r = twai_start();
+      if (r != ESP_OK)
+      {
+        DEBUG("TWAI: twai_start() after recovery returned %d", (int)r);
+      }
+    }
   }
 }
 
@@ -53,12 +130,6 @@ void onBodyRX(const twai_message_t &frame)
 #endif
   lastCAN = millis();
   hasCAN = true;
-
-  // process VW UDS responses via helper library — only when TP/UDS DSG is the active source
-  if (useTPUDSDSG)
-  {
-    vw_uds_process_response(frame);
-  }
 
   switch (frame.identifier)
   {
@@ -181,34 +252,21 @@ void onBodyRX(const twai_message_t &frame)
     // do nothing...
     break;
   }
-}
 
-void queryDSG_TP20()
-{
-  vw_uds_query_dsg_tp20();
-}
-
-void queryHaldex_UDS()
-{
-  vw_uds_query_haldex_uds();
-}
-
-void queryECUTask(void *args)
-{
-  while (1)
-  {
-    // Only run diagnostics if TP/UDS DSG is the active speed source
-    if (useTPUDSDSG)
-    {
-      queryDSG_TP20();
-      delay(20);
-      queryHaldex_UDS();
-      vTaskDelay(pdMS_TO_TICKS(2000));
+  // Aftermarket / Custom CAN speed input — parsed independently of the VW switch table
+  if (useAftermarket && frame.identifier == (aftermarketSpeedID & 0x7FF)) {
+    uint8_t lowIdx  = constrain(aftermarketSpeedLowByte,  0, 7);
+    uint8_t highIdx = constrain(aftermarketSpeedHighByte, 0, 7);
+    uint16_t rawValue;
+    if (aftermarketSpeedLittleEndian) {
+      // LSB at lowIdx, MSB at highIdx
+      rawValue = (uint16_t)frame.data[lowIdx] | ((uint16_t)frame.data[highIdx] << 8);
+    } else {
+      // Big-endian: MSB at lowIdx, LSB at highIdx (mirrors broadcastSpeed convention)
+      rawValue = (uint16_t)frame.data[highIdx] | ((uint16_t)frame.data[lowIdx] << 8);
     }
-    else
-    {
-      vTaskDelay(pdMS_TO_TICKS(100)); // quick idle check when TP/UDS DSG not in use
-    }
+    double scaled = (rawValue * aftermarketSpeedScale) + aftermarketSpeedOffset;
+    aftermarketSpeed = scaled < 0.0 ? 0.0 : scaled;
   }
 }
 

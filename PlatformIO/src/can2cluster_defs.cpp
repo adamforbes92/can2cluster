@@ -11,9 +11,9 @@ uint16_t maxFreqHall = 200;
 bool useEPCShiftLight = false;
 bool useEMLShiftLight = false;
 
-// setup - step changes (for needle sweep)
-uint16_t stepRPM = 100;
-uint16_t stepSpeed = 100;
+// setup - step changes (for needle sweep, used as duration multipliers in time-based formula)
+uint16_t stepRPM = 12;
+uint16_t stepSpeed = 10;
 
 // existing variables that were previously defined in header:
 uint8_t vehicleCoolantTemp = 0;
@@ -42,9 +42,10 @@ uint8_t lever_raw = 0;
 uint32_t lastMillis = 0;
 uint32_t lastMillis2 = 0;
 uint32_t lastCAN = 0;
-unsigned long lastPulse = 0;
-unsigned long dutyCycleIncoming = 0;
-unsigned long dutyCycleMotor = 0;
+volatile unsigned long lastPulse = 0;
+volatile unsigned long dutyCycleIncoming = 0;
+volatile unsigned long dutyCycleMotor = 0;
+volatile unsigned long lastPulseRPM = 0;
 
 bool vehicleEML = false;
 bool vehicleEPC = false;
@@ -66,7 +67,8 @@ bool useECU = false;
 bool useDSG = false;
 bool useGPS = false;
 bool useABS = false;
-bool useTPUDSDSG = false;
+bool useTP20 = false;
+bool useUDS  = false;
 bool useHallRPM = false;
 bool coilType = true;
 
@@ -75,11 +77,10 @@ bool triggerLED = false;
 bool selfTest = false;
 bool hasNeedleSweep = false;
 bool hasCAN = false;
-volatile bool eepDirty = false;
+
 bool hasGPS = false;
+bool gpsUnavailable = false;
 bool gpsError = false;
-bool gpsTaskSuspended = false;
-uint32_t lastGPSCharMillis = 0;
 uint8_t gpsUpdateRateHz = 1;
 TaskHandle_t gpsTaskHandle = NULL;
 TaskHandle_t updateSpeedHandle = NULL;
@@ -87,6 +88,14 @@ TaskHandle_t updateRPMHandle = NULL;
 bool tempNeedleSweep = false;
 bool testSpeedo = false;
 bool testRPM = false;
+bool useAftermarket = false;
+uint32_t aftermarketSpeedID = 0x200;
+uint8_t aftermarketSpeedLowByte = 0;
+uint8_t aftermarketSpeedHighByte = 1;
+bool aftermarketSpeedLittleEndian = true;
+float aftermarketSpeedScale = 1.0f;
+int16_t aftermarketSpeedOffset = 0;
+double aftermarketSpeed = 0;
 bool broadcastSpeedEnabled = false;
 uint32_t broadcastSpeedID = MOTOR2_ID;
 uint8_t broadcastSpeedDLC = 8;
@@ -181,6 +190,13 @@ int label_paddleUp = 0;
 bool autoDiagQuery = false;
 double dsgUDSSpeed = 0;
 double haldexUDSSpeed = 0;
+uint16_t tp20Speed = 0;
+uint16_t udsSpeed  = 0;
+
+// SavvyCAN analyzer globals
+bool    analyzerMode     = false;
+bool    analyzerSerial   = false;
+uint8_t analyzerProtocol = 0; // ANALYZER_PROTOCOL_GVRET
 uint8_t gpsSatellites = 0;
 uint16_t bool_autoDiagQuery = 0;
 int label_paddleDown = 0;

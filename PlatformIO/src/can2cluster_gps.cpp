@@ -1,7 +1,8 @@
 #include "can2cluster_gps.h"
 
 static unsigned long charsProcessedPrevious = 0;
-static unsigned long sentencesWithFixPrevious = 0;
+static unsigned long passedChecksumPrevious = 0;
+static unsigned long failedChecksumPrevious = 0;
 
 static unsigned long gpsUpdateCount = 0;
 static unsigned long gpsFreqWindowStart = 0;
@@ -15,6 +16,9 @@ static SemaphoreHandle_t gpsSerialMutex = nullptr;
 // Tracks the actual baud rate the ESP serial is currently running at.
 // Always GPS_DEFAULT_BAUD after boot — the GPS module resets to 9600 on power-up.
 static unsigned long gpsCurrentSerialBaud = GPS_DEFAULT_BAUD;
+
+// Millis of last GPS character received — used for timeout detection.
+static unsigned long lastGPSData = 0;
 
 // Satellite stability timer and rate-apply flag.
 static unsigned long gpsSatStableStartMs = 0;
@@ -39,6 +43,25 @@ static SemaphoreHandle_t getGPSSerialMutex()
   }
 
   return gpsSerialMutex;
+}
+
+unsigned long initGPS()
+{
+  DEBUG_GPS("[GPS Init] Starting GPS serial at default baud: %lu", GPS_DEFAULT_BAUD);
+  ss.end();
+  delay(50);
+  ss.begin(GPS_DEFAULT_BAUD);
+  charsProcessedPrevious = 0;
+  passedChecksumPrevious = gps.passedChecksum();
+  failedChecksumPrevious = gps.failedChecksum();
+  gpsUpdateCount = 0;
+  gpsFreqWindowStart = 0;
+  gpsUpdateFrequency = 0.0f;
+  gpsSatStableStartMs = 0;
+  gpsRateApplied = false;
+  gpsCurrentSerialBaud = GPS_DEFAULT_BAUD;
+  lastGPSData = millis();
+  return GPS_DEFAULT_BAUD;
 }
 
 float getGPSUpdateFrequency()
@@ -111,11 +134,12 @@ static bool applyGPSBaudRate(unsigned long baud, String &responseMsg)
   DEBUG_GPS("[GPS Baud] Stage complete. Local serial restarted at %lu baud.", baud);
 
   charsProcessedPrevious = gps.charsProcessed(); // snapshot — TinyGPS counter never resets
-  sentencesWithFixPrevious = gps.sentencesWithFix();
+  passedChecksumPrevious = gps.passedChecksum();
+  failedChecksumPrevious = gps.failedChecksum();
   gpsUpdateCount = 0;
   gpsFreqWindowStart = 0;
   gpsUpdateFrequency = 0.0f;
-  lastGPSCharMillis = millis();
+  lastGPSData = millis();
   gpsCurrentSerialBaud = baud;
 
   responseMsg = "GPS serial switched to " + String(baud) + " baud.";
@@ -220,13 +244,14 @@ bool setGPSUpdateRate(uint8_t rateHz, String &responseMsg)
   }
 
   gpsUpdateRateHz = rateHz;
+  if (rateChanged)
+  {
+    pref.putUChar("gpsUpdateRateHz", rateHz);
+  }
 
   xSemaphoreGive(serialMutex);
 
-  if (rateChanged)
-  {
-    eepDirty = true;
-  }
+
 
   responseMsg = "GPS update rate set to " + String(rateHz) + "Hz and " + baudResponse;
   DEBUG_GPS("[GPS Rate] Stage complete: %s", responseMsg.c_str());
@@ -289,45 +314,56 @@ void parseGPS(void *args)
     bool gotNewData = false;
     if (charsProcessedCurrent > charsProcessedPrevious)
     {
-      lastGPSCharMillis = millis();
+      lastGPSData = millis();
       charsProcessedPrevious = charsProcessedCurrent;
       gotNewData = true;
-      gpsTaskSuspended = false;
     }
 
     unsigned long now = millis();
     if (gpsFreqWindowStart == 0)
     {
       gpsFreqWindowStart = now;
-      sentencesWithFixPrevious = gps.sentencesWithFix();
+      passedChecksumPrevious = gps.passedChecksum();
+      failedChecksumPrevious = gps.failedChecksum();
     }
 
-    unsigned long sentencesWithFixCurrent = gps.sentencesWithFix();
-    if (sentencesWithFixCurrent > sentencesWithFixPrevious)
+    unsigned long passedChecksumCurrent = gps.passedChecksum();
+    unsigned long failedChecksumCurrent = gps.failedChecksum();
+    unsigned long parsedSentencesCurrent = passedChecksumCurrent + failedChecksumCurrent;
+    unsigned long parsedSentencesPrevious = passedChecksumPrevious + failedChecksumPrevious;
+    if (parsedSentencesCurrent > parsedSentencesPrevious)
     {
-      gpsUpdateCount += (sentencesWithFixCurrent - sentencesWithFixPrevious);
-      sentencesWithFixPrevious = sentencesWithFixCurrent;
+      gpsUpdateCount += (parsedSentencesCurrent - parsedSentencesPrevious);
+      passedChecksumPrevious = passedChecksumCurrent;
+      failedChecksumPrevious = failedChecksumCurrent;
     }
 
     if (now - gpsFreqWindowStart >= 1000)
     {
-      gpsUpdateFrequency = gpsUpdateCount * 1000.0f / (now - gpsFreqWindowStart);
+      if (gpsUpdateCount > 0)
+      {
+        // Divide sentences/sec by 10 (u-blox sends ~9 NMEA sentences per fix)
+        // and ceiling so 1Hz→1, 5Hz→5. Only update when sentences received so
+        // the value doesn't flicker to 0 between bursts.
+        gpsUpdateFrequency = int(gpsUpdateCount * 100.0f / (now - gpsFreqWindowStart) + 1);
+      }
       gpsUpdateCount = 0;
       gpsFreqWindowStart = now;
     }
 
-    if (useGPS && ((millis() - lastGPSCharMillis) > 10000))
+    if (useGPS && ((millis() - lastGPSData) > 10000))
     {
+      gpsUnavailable = true;
       gpsError = true;
       hasGPS = false;
       gpsSatellites = 0;
-      gpsTaskSuspended = true;
       vTaskDelay(pdMS_TO_TICKS(100));
       continue;
     }
 
     if (gotNewData && gps.satellites.value() == 0)
     {
+      gpsUnavailable = false;
       gpsError = false;
       hasGPS = false;
       gpsSatellites = 0;
@@ -358,6 +394,7 @@ void parseGPS(void *args)
         gpsRateApplied = true; // Rate is 1 Hz — no apply needed.
       }
 
+      gpsUnavailable = false;
       gpsError = false;
       hasGPS = true;
       gpsSatellites = gps.satellites.value();
@@ -371,29 +408,6 @@ void parseGPS(void *args)
     }
 
     vTaskDelay(pdMS_TO_TICKS(1));
-  }
-}
-
-void gpsResumeTask(void *args)
-{
-  while (1)
-  {
-    if (gpsTaskSuspended)
-    {
-      SemaphoreHandle_t serialMutex = getGPSSerialMutex();
-      if ((serialMutex != nullptr) && (xSemaphoreTake(serialMutex, pdMS_TO_TICKS(10)) == pdTRUE))
-      {
-        if (ss.available() > 0)
-        {
-          lastGPSCharMillis = millis();
-          gpsTaskSuspended = false;
-          gpsError = false;
-        }
-        xSemaphoreGive(serialMutex);
-      }
-    }
-
-    vTaskDelay(pdMS_TO_TICKS(500));
   }
 }
 

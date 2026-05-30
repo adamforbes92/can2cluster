@@ -3,8 +3,8 @@
 
 #include "can2cluster_defs.h"
 
+unsigned long initGPS();
 void parseGPS(void *args);
-void gpsResumeTask(void *args);
 bool setGPSUpdateRate(uint8_t rateHz, String &responseMsg);
 float getGPSUpdateFrequency();
 int gpsAutoApplySecondsRemaining();

@@ -1,6 +1,11 @@
 #include "vw_uds.h"
 
 bool vw_uds_send_request(uint32_t id, const uint8_t* payload, uint8_t payload_len) {
+#if !VW_UDS_ENABLED
+  // UDS is disabled — never put a frame on the bus from here. See vw_uds.h.
+  (void)id; (void)payload; (void)payload_len;
+  return false;
+#else
   twai_message_t req{};
   req.identifier = id;
   req.extd = false;
@@ -19,9 +24,13 @@ bool vw_uds_send_request(uint32_t id, const uint8_t* payload, uint8_t payload_le
     return false;
   }
   return true;
+#endif
 }
 
 void vw_uds_query_dsg_tp20() {
+#if !VW_UDS_ENABLED
+  return;
+#else
   uint8_t payload[8] = {0};
   payload[0] = 0x02;  // ISO-TP single frame length=2
   payload[1] = 0x10;  // StartDiagnosticSession
@@ -32,9 +41,13 @@ void vw_uds_query_dsg_tp20() {
   } else {
     DEBUG_UDS("DSG query send failed");
   }
+#endif
 }
 
 void vw_uds_query_haldex_uds() {
+#if !VW_UDS_ENABLED
+  return;
+#else
   uint8_t payload[8] = {0};
   payload[0] = 0x03;  // ISO-TP single frame length=3
   payload[1] = 0x22;  // ReadDataByIdentifier
@@ -46,9 +59,14 @@ void vw_uds_query_haldex_uds() {
   } else {
     DEBUG_UDS("Haldex query send failed");
   }
+#endif
 }
 
 void vw_uds_process_response(const twai_message_t &frame) {
+#if !VW_UDS_ENABLED
+  (void)frame;
+  return;
+#else
   if (frame.identifier != mWaehlhebel_1_ID && frame.identifier != HALDEX_ID) {
     return;
   }
@@ -89,4 +107,5 @@ void vw_uds_process_response(const twai_message_t &frame) {
     DEBUG_UDS("0x%03X negative response: 0x%02X", frame.identifier, negCode);
     return;
   }
+#endif // VW_UDS_ENABLED
 }

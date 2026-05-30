@@ -20,7 +20,6 @@ void broadcastGRA(void *args);
 void broadcastSpeed(void *args);
 void parseGPS(void *args);
 void parseDSG(void *args);
-void gpsResumeTask(void *args);
 void needleSweep(void);
 
 void queryECUTask(void *args);

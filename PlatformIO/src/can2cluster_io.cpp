@@ -1,5 +1,14 @@
 #include "can2cluster_io.h"
+#include "can2cluster_gps.h"
 #include <driver/ledc.h>
+
+// File-scope ISR state — must NOT be function-local statics.
+// C++ function-local statics with non-constant initialisers call
+// __cxa_guard_acquire() -> pthread_mutex_lock() -> xSemaphoreTake()
+// on their first invocation, which asserts inside FreeRTOS when triggered
+// from an ISR context (xQueueSemaphoreTake assert in queue.c).
+static unsigned long hallPreviousMicros = 0;
+static unsigned long rpmPreviousMicros  = 0;
 
 namespace
 {
@@ -86,7 +95,7 @@ void basicInit()
   DEBUG("Read EEPROM!");
 #endif
 
-  ss.begin(baudGPS); // begin GPS Module
+  initGPS(); // initialise GPS serial at default baud and reset state
 #if serialDebugGPS
   // DEBUG(TinyGPSPlus::libraryVersion());
   DEBUG("Sats HDOP  Latitude   Longitude   Fix  Date       Time     Date Alt    Course Speed Card  Distance Course Card  Chars Sentences Checksum");
@@ -133,6 +142,11 @@ void setupPins()
 
   setupLedcOutputs();
 
+  // Initialise ISR timestamps now so the first pulse doesn't see a
+  // stale zero and produce a spurious reading.
+  hallPreviousMicros = micros();
+  rpmPreviousMicros  = micros();
+
   attachInterrupt(digitalPinToInterrupt(pinHallSensor), incomingHz, FALLING); // setup interrupt to toggle pin on change
   attachInterrupt(digitalPinToInterrupt(pinRpmPulse), incomingRPMHz, FALLING); // setup interrupt for engine RPM pulse input
 }
@@ -146,88 +160,88 @@ void setupButtons()
 
 void needleSweep()
 {
-  // Suspend the output tasks so they don't overwrite frequencies mid-sweep
-  if (updateSpeedHandle != NULL) vTaskSuspend(updateSpeedHandle);
-  if (updateRPMHandle   != NULL) vTaskSuspend(updateRPMHandle);
+  // Task suspension is handled by the caller (main loop) via tasksSuspendAll() / tasksResumeAll().
 
-  const uint16_t effectiveSweepSpeed = sweepSpeed > 0 ? sweepSpeed : 1;
-  const uint16_t effectiveStepSpeed = stepSpeed > 0 ? stepSpeed : 1;
-  const uint16_t effectiveStepRPM = stepRPM > 0 ? stepRPM : 1;
+  const uint32_t kSweepPollMs = 10;
 
-  frequencyRPM = 0;
-  frequencySpeed = 0;
-  setFrequencyRPM(0);
-  setFrequencySpeed(0);
+  // Total fade duration per needle — matches SPP formula:
+  //   stepSpeed × sweepSpeed × maxSpeed / 10  (e.g. 10 × 18 × 200 / 10 = 3600 ms)
+  const uint32_t kFadeMsSpeedRaw = (uint32_t)(stepSpeed * (float)sweepSpeed * (float)maxSpeed / 10.0f);
+  const uint32_t kFadeMsRPMRaw   = (uint32_t)(stepRPM   * (float)sweepSpeed * (float)maxRPM   / 10.0f);
+  const uint32_t kFadeMsSpeed    = max<uint32_t>(kFadeMsSpeedRaw, 1U);
+  const uint32_t kFadeMsRPM      = max<uint32_t>(kFadeMsRPMRaw,   1U);
+  const uint32_t kFadeMsMax      = max(kFadeMsSpeed, kFadeMsRPM);
 
-  // Ramp UP in fixed increments with fixed delay between steps.
-  long currentSpeed = 0;
-  long currentRPM = 0;
-  while (currentSpeed < (long)maxSpeed || currentRPM < (long)maxRPM)
+  const long kMaxSpeedFreq = (long)maxSpeed;
+  const long kMaxRpmFreq   = (long)maxRPM;
+
+  // ---- Ramp UP: both needles ramp concurrently within their own time budgets ----
   {
-    if (currentSpeed < (long)maxSpeed)
+    uint32_t sweepStart = millis();
+    while (millis() - sweepStart < kFadeMsMax)
     {
-      currentSpeed += effectiveStepSpeed;
-      if (currentSpeed > (long)maxSpeed)
-      {
-        currentSpeed = (long)maxSpeed;
-      }
-    }
+      uint32_t elapsed = millis() - sweepStart;
 
-    if (currentRPM < (long)maxRPM)
-    {
-      currentRPM += effectiveStepRPM;
-      if (currentRPM > (long)maxRPM)
+      if (elapsed < kFadeMsSpeed)
       {
-        currentRPM = (long)maxRPM;
+        long targetSpeed = (kMaxSpeedFreq * (long)elapsed) / (long)kFadeMsSpeed;
+        frequencySpeed = targetSpeed;
+        setFrequencySpeed(targetSpeed);
       }
-    }
 
-    frequencySpeed = currentSpeed;
-    frequencyRPM = currentRPM;
-    setFrequencySpeed(currentSpeed);
-    setFrequencyRPM(currentRPM);
-    vTaskDelay(pdMS_TO_TICKS(effectiveSweepSpeed));
+      if (elapsed < kFadeMsRPM)
+      {
+        long targetRPM = (kMaxRpmFreq * (long)elapsed) / (long)kFadeMsRPM;
+        frequencyRPM = targetRPM;
+        setFrequencyRPM(targetRPM);
+      }
+
+      vTaskDelay(pdMS_TO_TICKS(kSweepPollMs));
+    }
   }
 
-  vTaskDelay(pdMS_TO_TICKS(effectiveSweepSpeed * 2));
+  // Hard-set full deflection
+  frequencySpeed = kMaxSpeedFreq;
+  frequencyRPM   = kMaxRpmFreq;
+  setFrequencySpeed(kMaxSpeedFreq);
+  setFrequencyRPM(kMaxRpmFreq);
 
-  // Ramp DOWN in fixed decrements with fixed delay between steps.
-  while (currentSpeed > 0 || currentRPM > 0)
+  // Pause at full deflection
+  vTaskDelay(pdMS_TO_TICKS((uint32_t)sweepSpeed * 2));
+
+  // ---- Ramp DOWN: mirror of ramp-up ----------------------------------------
   {
-    if (currentSpeed > 0)
+    uint32_t sweepStart = millis();
+    while (millis() - sweepStart < kFadeMsMax)
     {
-      currentSpeed -= effectiveStepSpeed;
-      if (currentSpeed < 0)
-      {
-        currentSpeed = 0;
-      }
-    }
+      uint32_t elapsed = millis() - sweepStart;
 
-    if (currentRPM > 0)
-    {
-      currentRPM -= effectiveStepRPM;
-      if (currentRPM < 0)
+      if (elapsed < kFadeMsSpeed)
       {
-        currentRPM = 0;
+        long targetSpeed = kMaxSpeedFreq - (kMaxSpeedFreq * (long)elapsed) / (long)kFadeMsSpeed;
+        if (targetSpeed < 0) targetSpeed = 0;
+        frequencySpeed = targetSpeed;
+        setFrequencySpeed(targetSpeed);
       }
-    }
 
-    frequencySpeed = currentSpeed;
-    frequencyRPM = currentRPM;
-    setFrequencySpeed(currentSpeed);
-    setFrequencyRPM(currentRPM);
-    vTaskDelay(pdMS_TO_TICKS(effectiveSweepSpeed));
+      if (elapsed < kFadeMsRPM)
+      {
+        long targetRPM = kMaxRpmFreq - (kMaxRpmFreq * (long)elapsed) / (long)kFadeMsRPM;
+        if (targetRPM < 0) targetRPM = 0;
+        frequencyRPM = targetRPM;
+        setFrequencyRPM(targetRPM);
+      }
+
+      vTaskDelay(pdMS_TO_TICKS(kSweepPollMs));
+    }
   }
 
-  vTaskDelay(pdMS_TO_TICKS(effectiveSweepSpeed * 2));
-  frequencyRPM = 0;
+  // Settle, then hard-zero both outputs
+  vTaskDelay(pdMS_TO_TICKS((uint32_t)sweepSpeed * 2));
   frequencySpeed = 0;
-  setFrequencyRPM(0);
+  frequencyRPM   = 0;
   setFrequencySpeed(0);
-
-  // Resume output tasks now that sweep is complete
-  if (updateSpeedHandle != NULL) vTaskResume(updateSpeedHandle);
-  if (updateRPMHandle   != NULL) vTaskResume(updateRPMHandle);
+  setFrequencyRPM(0);
 }
 
 void blinkLED(int duration, int flashes, bool boolEPC, bool boolEML, bool boolRPM, bool boolSpeed)
@@ -387,8 +401,20 @@ void diagTest()
 // adjust output frequency
 void setFrequencyRPM(long frequencyHz)
 {
-  ledc_channel_t activeChannel = coilType ? LEDC_RPM_COIL_CHANNEL : LEDC_RPM_PIN_CHANNEL;
-  ledc_channel_t inactiveChannel = coilType ? LEDC_RPM_PIN_CHANNEL : LEDC_RPM_COIL_CHANNEL;
+  static long     lastFrequencyHz = -1;
+  static bool     lastCoilType    = false;
+
+  // Only call LEDC API when something actually changed — calling
+  // ledc_set_freq/duty every 1 ms while spinning hammers the LEDC
+  // driver spinlock and triggers internal FreeRTOS assertions.
+  if (frequencyHz == lastFrequencyHz && coilType == lastCoilType)
+    return;
+
+  lastFrequencyHz = frequencyHz;
+  lastCoilType    = coilType;
+
+  ledc_channel_t activeChannel   = coilType ? LEDC_RPM_COIL_CHANNEL : LEDC_RPM_PIN_CHANNEL;
+  ledc_channel_t inactiveChannel = coilType ? LEDC_RPM_PIN_CHANNEL  : LEDC_RPM_COIL_CHANNEL;
 
   ledc_set_duty(LEDC_MODE, inactiveChannel, LEDC_DUTY_OFF);
   ledc_update_duty(LEDC_MODE, inactiveChannel);
@@ -414,6 +440,13 @@ void setFrequencyRPM(long frequencyHz)
 // adjust output frequency
 void setFrequencySpeed(long frequencyHz)
 {
+  static long lastFrequencyHz = -1;
+
+  if (frequencyHz == lastFrequencyHz)
+    return;
+
+  lastFrequencyHz = frequencyHz;
+
   if (frequencyHz > 0)
   {
     uint32_t targetFreq = static_cast<uint32_t>(frequencyHz);
@@ -432,27 +465,24 @@ void setFrequencySpeed(long frequencyHz)
   }
 }
 
-void incomingHz()
-{                                                                // Interrupt 0 service routine
-  static unsigned long previousMicros = micros();                // remember variable, initialize first time
-  unsigned long presentMicros = micros();                        // read microseconds
-  unsigned long revolutionTime = presentMicros - previousMicros; // works fine with wrap-around of micros()
+void incomingHz()                                               // Interrupt service routine for Hall speed sensor
+{
+  unsigned long presentMicros = micros();
+  unsigned long revolutionTime = presentMicros - hallPreviousMicros; // works fine with wrap-around of micros()
   if (revolutionTime < 1000UL)
-    return;                                               // avoid divide by 0, also debounce, speed can't be over 60,000 was 1000UL
-  dutyCycleIncoming = (60000000UL / revolutionTime) / 60; // calculate
-  previousMicros = presentMicros;
+    return;                                               // debounce — speed can't exceed 60,000 Hz
+  dutyCycleIncoming = (60000000UL / revolutionTime) / 60; // calculate frequency in Hz
+  hallPreviousMicros = presentMicros;
   lastPulse = millis();
-
-  hallSpeed = map(dutyCycleIncoming, 0, maxFreqHall, 0, maxSpeed); // map incoming range to this codes range.  Max Hz should match Max Speed - i.e., 200Hz = 200kmh, or 500Hz = 200kmh...
 }
 
-void incomingRPMHz()
-{                                                                // Interrupt service routine for incoming RPM pulse
-  static unsigned long previousMicros = micros();                // remember variable, initialize first time
-  unsigned long presentMicros = micros();                        // read microseconds
-  unsigned long revolutionTime = presentMicros - previousMicros; // works fine with wrap-around of micros()
+void incomingRPMHz()                                            // Interrupt service routine for engine RPM pulse
+{
+  unsigned long presentMicros = micros();
+  unsigned long revolutionTime = presentMicros - rpmPreviousMicros; // works fine with wrap-around of micros()
   if (revolutionTime < 1000UL)
-    return;                                                    // avoid divide by 0, also debounce
-  dutyCycleMotor = (60000000UL / revolutionTime) / 60;        // calculate incoming frequency in Hz
-  previousMicros = presentMicros;
+    return;                                                    // debounce
+  dutyCycleMotor = (60000000UL / revolutionTime) / 60;        // calculate frequency in Hz
+  rpmPreviousMicros = presentMicros;
+  lastPulseRPM = millis();
 }

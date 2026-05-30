@@ -4,6 +4,18 @@
 #include "can2cluster_defs.h"
 #include <driver/twai.h>
 
+// =====================================================================
+// VW UDS / TP2.0 support is currently DISABLED.
+// The previous implementation was sending requests to broadcast IDs
+// (0x540 mWaehlhebel_1_ID, 0x2C0 HALDEX_ID) which collide with real
+// ECU broadcasts on the powertrain bus and drive the TWAI controller
+// into bus-off. Set VW_UDS_ENABLED to 1 to re-enable once the
+// addressing / TP2.0 channel setup has been reworked.
+// =====================================================================
+#ifndef VW_UDS_ENABLED
+#define VW_UDS_ENABLED 0
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

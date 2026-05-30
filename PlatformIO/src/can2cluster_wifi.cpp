@@ -54,7 +54,7 @@ static bool handleTestOutputControl(const String &key, JsonVariant value)
   return false;
 }
 
-static uint32_t parseCanId(const String &raw)
+static uint32_t parseCanId(const String &raw, uint32_t defaultVal)
 {
   String value = raw;
   value.trim();
@@ -65,7 +65,7 @@ static uint32_t parseCanId(const String &raw)
   char *endPtr = nullptr;
   unsigned long parsed = strtoul(value.c_str(), &endPtr, 16);
   if (endPtr == value.c_str() || *endPtr != '\0') {
-    return broadcastSpeedID;
+    return defaultVal;
   }
 
   return static_cast<uint32_t>(parsed) & 0x7FF;
@@ -79,7 +79,7 @@ static bool handleBroadcastSpeedControl(const String &key, JsonVariant value)
   }
   if (key == "broadcastSpeedID") {
     if (value.is<const char*>()) {
-      broadcastSpeedID = parseCanId(String(value.as<const char*>()));
+      broadcastSpeedID = parseCanId(String(value.as<const char*>()), broadcastSpeedID);
     } else {
       broadcastSpeedID = value.as<uint32_t>() & 0x7FF;
     }
@@ -118,6 +118,39 @@ static bool handleBroadcastSpeedControl(const String &key, JsonVariant value)
     }
   }
 
+  return false;
+}
+
+static bool handleAftermarketControl(const String &key, JsonVariant value)
+{
+  if (key == "aftermarketSpeedID") {
+    if (value.is<const char*>()) {
+      aftermarketSpeedID = parseCanId(String(value.as<const char*>()), aftermarketSpeedID);
+    } else {
+      aftermarketSpeedID = value.as<uint32_t>() & 0x7FF;
+    }
+    return true;
+  }
+  if (key == "aftermarketSpeedLowByte") {
+    aftermarketSpeedLowByte = constrain(value.as<int>(), 0, 7);
+    return true;
+  }
+  if (key == "aftermarketSpeedHighByte") {
+    aftermarketSpeedHighByte = constrain(value.as<int>(), 0, 7);
+    return true;
+  }
+  if (key == "aftermarketSpeedLittleEndian") {
+    aftermarketSpeedLittleEndian = value.as<bool>();
+    return true;
+  }
+  if (key == "aftermarketSpeedScale") {
+    aftermarketSpeedScale = value.as<float>();
+    return true;
+  }
+  if (key == "aftermarketSpeedOffset") {
+    aftermarketSpeedOffset = value.as<int>();
+    return true;
+  }
   return false;
 }
 
@@ -179,19 +212,29 @@ void setupWebRoutes()
       String dataKey = "broadcastSpeedData" + String(i);
       doc[dataKey] = broadcastSpeedData[i];
     }
-    
+
+    doc["aftermarketSpeedID"] = aftermarketSpeedID;
+    doc["aftermarketSpeedLowByte"] = aftermarketSpeedLowByte;
+    doc["aftermarketSpeedHighByte"] = aftermarketSpeedHighByte;
+    doc["aftermarketSpeedLittleEndian"] = aftermarketSpeedLittleEndian;
+    doc["aftermarketSpeedScale"] = aftermarketSpeedScale;
+    doc["aftermarketSpeedOffset"] = aftermarketSpeedOffset;
+
     // Speed type selection
     if (useHall) doc["speedType"] = "Hall";
     else if (useECU) doc["speedType"] = "ECU";
     else if (useABS) doc["speedType"] = "ABS";
     else if (useDSG) doc["speedType"] = "DSG";
-    else if (useTPUDSDSG) doc["speedType"] = "TP2.0-DSG";
+    else if (useTP20) doc["speedType"] = "TP2.0";
+    else if (useUDS) doc["speedType"] = "UDS";
     else if (useGPS) doc["speedType"] = "GPS";
+    else if (useAftermarket) doc["speedType"] = "Custom CAN";
     else doc["speedType"] = "Hall";
 
     doc["rpmType"] = useHallRPM ? "Hall" : "CAN";
     doc["clusterFrequencyLimit"] = maxRPM;
     doc["clusterRPMLimit"] = clusterRPMLimit;
+    doc["maxFreqHall"] = maxFreqHall;
     doc["gpsUpdateRateHz"] = gpsUpdateRateHz;
     
     // Diagnostic query status
@@ -206,15 +249,16 @@ void setupWebRoutes()
     JsonDocument doc;
     doc["hasCAN"] = hasCAN;
     doc["hasGPS"] = hasGPS;
+    doc["gpsUnavailable"] = gpsUnavailable;
     doc["gpsSatellites"] = gpsSatellites;
-    doc["gpsTaskSuspended"] = gpsTaskSuspended;
     doc["gpsFrequency"] = getGPSUpdateFrequency();
     doc["gpsAutoApplySecs"] = gpsAutoApplySecondsRemaining();
     doc["hallSpeed"] = hallSpeed;
     doc["ecuSpeed"] = ecuSpeed;
     doc["absSpeed"] = absSpeed;
     doc["dsgSpeed"] = dsgSpeed;
-    doc["udsSpeed"] = dsgUDSSpeed;  // TP2.0/UDS DSG speed
+    doc["udsSpeed"] = udsSpeed;    // UDS speed (ISO 14229)
+    doc["tp20Speed"] = tp20Speed;   // TP2.0 DSG speed
     doc["gpsSpeed"] = gpsSpeed;
     doc["vehicleRPM"] = vehicleRPM;
     doc["canRPM"] = vehicleRPMCAN;
@@ -238,6 +282,7 @@ void setupWebRoutes()
     doc["tempNeedleSweep"] = tempNeedleSweep;
     doc["broadcastSpeedEnabled"] = broadcastSpeedEnabled;
     doc["broadcastSpeedValue"] = broadcastSpeedValue;
+    doc["aftermarketSpeed"] = aftermarketSpeed;
     doc["freeHeap"] = ESP.getFreeHeap();
     
     /*
@@ -266,7 +311,8 @@ void setupWebRoutes()
     else if (useECU) doc["speedType"] = "ECU";
     else if (useABS) doc["speedType"] = "ABS";
     else if (useDSG) doc["speedType"] = "DSG";
-    else if (useTPUDSDSG) doc["speedType"] = "TP2.0-DSG";
+    else if (useTP20) doc["speedType"] = "TP2.0";
+    else if (useUDS) doc["speedType"] = "UDS";
     else if (useGPS) doc["speedType"] = "GPS";
     else doc["speedType"] = "Hall";
     
@@ -306,7 +352,11 @@ void setupWebRoutes()
     }
 
     if (handleBroadcastSpeedControl(key, value)) {
-      eepDirty = true;  // settings changed — schedule a flash write
+      request->send(200, "application/json", "{\"ok\":true}");
+      return;
+    }
+
+    if (handleAftermarketControl(key, value)) {
       request->send(200, "application/json", "{\"ok\":true}");
       return;
     }
@@ -355,15 +405,16 @@ void setupWebRoutes()
     
     if (key == "speedType") {
       String st = value.as<const char*>();
-      useHall = st == "Hall";
-      useECU = st == "ECU";
-      useDSG = st == "DSG";
-      useABS = st == "ABS";
-      useGPS = st == "GPS";
-      // TP/UDS DSG handled separately - still uses DSG speed value but from UDS protocol
-      useTPUDSDSG = st == "TP2.0-DSG";
-      // Only activate UDS/TP diagnostics when TP/UDS DSG is selected
-      autoDiagQuery = useTPUDSDSG;
+      useHall       = st == "Hall";
+      useECU        = st == "ECU";
+      useDSG        = st == "DSG";
+      useABS        = st == "ABS";
+      useGPS        = st == "GPS";
+      useTP20       = st == "TP2.0";
+      useUDS        = st == "UDS";
+      useAftermarket = st == "Custom CAN";
+      // Activate live diagnostics when TP2.0 or UDS is selected
+      autoDiagQuery = useTP20 || useUDS;
       settingApplied = true;
     }
 
@@ -378,6 +429,11 @@ void setupWebRoutes()
       settingApplied = true;
     }
 
+    if (key == "maxFreqHall") {
+      maxFreqHall = value.as<int>();
+      settingApplied = true;
+    }
+
     if (key == "clusterRPMLimit") {
       clusterRPMLimit = value.as<int>();
       settingApplied = true;
@@ -388,7 +444,6 @@ void setupWebRoutes()
       return;
     }
 
-    eepDirty = true;  // settings changed — schedule a flash write
     request->send(200, "application/json", "{\"ok\":true}"); });
 
   server.on("/api/action", HTTP_POST, [](AsyncWebServerRequest *request) {}, NULL, [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total)
@@ -457,41 +512,77 @@ void setupWebRoutes()
     serializeJson(doc, *response);
     request->send(response); });
 
-  server.on("/api/ota/upload", HTTP_POST, [](AsyncWebServerRequest *request)
-            {
-    request->send(200, "application/json", "{\"message\":\"Update completed. Device will reboot...\"}"); }, [](AsyncWebServerRequest *request, const String &filename, size_t index, uint8_t *data, size_t len, bool final)
-            {
-    // Handle file upload
-    if (index == 0) {
-      DEBUG_WIFI("Starting OTA update, filename: %s", filename.c_str());
-      
-      // Start the update
-      if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
-        Update.printError(Serial);
-        DEBUG_WIFI("OTA Update.begin() failed");
-        return;
+  server.on("/api/ota", HTTP_POST,
+    [](AsyncWebServerRequest *request) {
+      bool success = !Update.hasError();
+      request->send(success ? 200 : 500, "application/json",
+                    success ? "{\"success\":true}" : "{\"success\":false}");
+      if (success) {
+        xTaskCreate([](void*) {
+          vTaskDelay(pdMS_TO_TICKS(1500));
+          ESP.restart();
+          vTaskDelete(nullptr);
+        }, "ota_reboot", 2048, nullptr, 1, nullptr);
       }
-    }
-    
-    // Write data to update partition
-    if (Update.write(data, len) != len) {
-      Update.printError(Serial);
-      DEBUG_WIFI("OTA Update.write() failed");
-      return;
-    }
-    
-    if (final) {
-      if (Update.end(true)) {
-        DEBUG_WIFI("OTA Update successful, rebooting...");
-        // Schedule reboot after a short delay to allow response to be sent
-        delay(500);
-        ESP.restart();
-      } else {
-        Update.printError(Serial);
-        DEBUG_WIFI("OTA Update.end() failed");
+    },
+    [](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
+      if (index == 0) {
+        DEBUG_WIFI("Starting firmware OTA: %s", filename.c_str());
+        if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
+          Update.printError(Serial);
+        }
       }
-    }
-  });
+      if (!Update.hasError()) {
+        if (Update.write(data, len) != len) {
+          Update.printError(Serial);
+        }
+      }
+      if (final) {
+        if (!Update.hasError()) {
+          if (!Update.end(true)) {
+            Update.printError(Serial);
+          } else {
+            DEBUG_WIFI("Firmware OTA complete");
+          }
+        }
+      }
+    });
+
+  server.on("/api/ota/fs", HTTP_POST,
+    [](AsyncWebServerRequest *request) {
+      bool success = !Update.hasError();
+      request->send(success ? 200 : 500, "application/json",
+                    success ? "{\"success\":true}" : "{\"success\":false}");
+      if (success) {
+        xTaskCreate([](void*) {
+          vTaskDelay(pdMS_TO_TICKS(1500));
+          ESP.restart();
+          vTaskDelete(nullptr);
+        }, "otafs_reboot", 2048, nullptr, 1, nullptr);
+      }
+    },
+    [](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
+      if (index == 0) {
+        DEBUG_WIFI("Starting filesystem OTA: %s", filename.c_str());
+        if (!Update.begin(UPDATE_SIZE_UNKNOWN, U_SPIFFS)) {
+          Update.printError(Serial);
+        }
+      }
+      if (!Update.hasError()) {
+        if (Update.write(data, len) != len) {
+          Update.printError(Serial);
+        }
+      }
+      if (final) {
+        if (!Update.hasError()) {
+          if (!Update.end(true)) {
+            Update.printError(Serial);
+          } else {
+            DEBUG_WIFI("Filesystem OTA complete");
+          }
+        }
+      }
+    });
 }
 
 void setupUI()
