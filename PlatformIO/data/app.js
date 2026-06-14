@@ -327,9 +327,12 @@ async function fetchSettings() {
     const diagTestEl = document.getElementById('diagTest');
     if (diagTestEl) diagTestEl.checked = data.diagTest || false;
     const analyzerModeEl = document.getElementById('analyzerMode');
-    if (analyzerModeEl) analyzerModeEl.checked = data.analyzerMode || false;
     const analyzerSerialEl = document.getElementById('analyzerSerial');
-    if (analyzerSerialEl) analyzerSerialEl.checked = data.analyzerSerial || false;
+    // Enforce mutual exclusion: WiFi takes priority if somehow both are true
+    const wifiOn = !!(data.analyzerMode);
+    const serialOn = !!(data.analyzerSerial) && !wifiOn;
+    if (analyzerModeEl) analyzerModeEl.checked = wifiOn;
+    if (analyzerSerialEl) analyzerSerialEl.checked = serialOn;
 
     // Speed type dropdown - map speedType to dropdown options
     let speedTypeValue = 'Hall';  // default
