@@ -21,6 +21,10 @@ void readEEP() {
     pref.putBool("useUDS", useUDS);
     pref.putBool("useHallRPM", useHallRPM);
     pref.putBool("coilType", coilType);
+    pref.putBool("useMPH", useMPH);
+    pref.putBool("diagTest", diagTest);
+    pref.putBool("analyzerMode", analyzerMode);
+    pref.putBool("analyzerSerial", analyzerSerial);
     pref.putBool("useEMLLight", useEMLShiftLight);
     pref.putBool("useEPCLight", useEPCShiftLight);
 
@@ -74,6 +78,10 @@ void readEEP() {
     useUDS  = pref.getBool("useUDS", false);
     useHallRPM = pref.getBool("useHallRPM", false);
     coilType = pref.getBool("coilType", true);
+    useMPH = pref.getBool("useMPH", false);
+    diagTest = pref.getBool("diagTest", false);
+    analyzerMode   = pref.getBool("analyzerMode", false);
+    analyzerSerial = pref.getBool("analyzerSerial", false);
     useEMLShiftLight = pref.getBool("useEMLLight", false);
     useEPCShiftLight = pref.getBool("useEPCLight", false);
 
@@ -183,7 +191,11 @@ void writeEEP(void *args) {
     pref.putBool("useUDS", useUDS);
     pref.putBool("useHallRPM", useHallRPM);
     pref.putBool("coilType", coilType);
+    pref.putBool("useMPH", useMPH);
+    pref.putBool("diagTest", diagTest);
     pref.putBool("useEMLLight", useEMLShiftLight);
+    pref.putBool("analyzerMode", analyzerMode);
+    pref.putBool("analyzerSerial", analyzerSerial);
     pref.putBool("useEPCLight", useEPCShiftLight);
 
     pref.putBool("hasNeedleSweep", hasNeedleSweep);

@@ -19,6 +19,7 @@ void setupTasks()
   xTaskCreatePinnedToCore(outputControlTask, "outputControlTask", 4096, NULL, 11, NULL, 1);
   xTaskCreatePinnedToCore(paddleFeedbackTask, "paddleFeedbackTask", 2048, NULL, 11, NULL, 1);
   xTaskCreatePinnedToCore(checkError,     "checkError",     2000, NULL, 12, NULL,    1);
+  xTaskCreatePinnedToCore(diagTestTask,   "diagTestTask",   3000, NULL,  8, NULL,    1);
 }
 
 // Suspend all tasks that could interfere with SoftwareSerial timing during
@@ -110,7 +111,7 @@ void updateSpeed(void *args)
     stackupdateSpeed = uxTaskGetStackHighWaterMark(NULL); // for capturing how much memory the task is using
 #endif
 
-    if (!tempNeedleSweep)
+    if (!tempNeedleSweep && !diagTest)
     { // only here if tested in WiFi
 
       // Reset Hall speed if no pulse has arrived within durationReset ms
@@ -165,9 +166,9 @@ void updateSpeed(void *args)
         }
       }
 
-      if (speedUnits == 1)
+      if (useMPH)
       {
-        vehicleSpeed = int((vehicleSpeed * mphFactor) / 1000000); // 621371
+        vehicleSpeed = int(((uint32_t)vehicleSpeed * mphFactor) / 1000000); // km/h -> MPH (factor 0.621371)
       }
 
       // calculate final frequency:
@@ -185,7 +186,7 @@ void updateRPM(void *args)
 #if detailedDebugStack
     stackupdateRPM = uxTaskGetStackHighWaterMark(NULL); // for capturing how much memory the task is using
 #endif
-    if (!tempNeedleSweep)
+    if (!tempNeedleSweep && !diagTest)
     { // only here if tested in WiFi
       if (testRPM)
       { // set vehicleRPM is testing or not
@@ -234,7 +235,7 @@ void outputControlTask(void *args)
     }
 
     // Trigger shift flashes while RPM remains above configured threshold.
-    if ((useEPCShiftLight || useEMLShiftLight) && vehicleRPM > shiftLimit)
+    if (!diagTest && (useEPCShiftLight || useEMLShiftLight) && vehicleRPM > shiftLimit)
     {
       if (!blinkState.active)
       {

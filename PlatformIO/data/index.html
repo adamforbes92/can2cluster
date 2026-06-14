@@ -41,7 +41,7 @@
                     <div class="gauge">
                         <div class="gauge-label">Speed Final</div>
                         <div class="gauge-value" id="speed">--</div>
-                        <div class="gauge-unit">km/h</div>
+                        <div class="gauge-unit" id="speedUnit">KMH</div>
                     </div>
                 </div>
             </section>
@@ -139,6 +139,12 @@
                         Use Coil Output (RPM)
                     </label>
                 </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="useMPH">
+                        Cluster in MPH
+                    </label>
+                </div>
             </section>
 
             <section class="card">
@@ -228,7 +234,7 @@
                     </label>
                 </div>
                 <div class="input-group">
-                    <label>Test Speed Value: <span id="tempSpeed-display" style="transition: background-color 0.3s;">0</span> km/h</label>
+                    <label>Test Speed Value: <span id="tempSpeed-display" style="transition: background-color 0.3s;">0</span> <span id="tempSpeed-unit">KMH</span></label>
                     <input type="range" id="tempSpeed" min="0" max="200" value="0" class="slider">
                 </div>
             </section>
@@ -319,6 +325,42 @@
                 <div class="live-data-item" style="margin-top: 1rem;">
                     <div class="live-data-label">GPS Updates/sec</div>
                     <div class="live-data-value" id="liveGPSFrequency">--</div>
+                </div>
+            </section>
+
+            <section class="card">
+                <h2>Diagnostic Mode</h2>
+                <p style="margin-top: 0; color: #b00020;">
+                    When enabled, all normal speed/RPM/output processing is bypassed and the
+                    device cycles every output (RPM, Speed, EML, EPC, Reverse, Park) as a
+                    bench test. Setting is persisted &mdash; disable before driving!
+                </p>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="diagTest">
+                        Enable Diagnostic Output Test
+                    </label>
+                </div>
+            </section>
+
+            <section class="card">
+                <h2>CAN Analyzer</h2>
+                <p style="margin-top: 0;">
+                    Forward all received CAN frames to SavvyCAN. WiFi and Serial modes are mutually exclusive.
+                    <br>WiFi (GVRET): connect SavvyCAN to <strong>192.168.1.1:23</strong>.
+                    <br>Serial (GVRET): select the COM port in SavvyCAN &mdash; baud is set automatically.
+                </p>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="analyzerMode">
+                        SavvyCAN via WiFi
+                    </label>
+                </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="analyzerSerial">
+                        SavvyCAN via Serial
+                    </label>
                 </div>
             </section>
 
@@ -470,7 +512,7 @@
 
     </div>
 
-    <script src="app.js?v=3.00"></script>
+    <script src="app.js?v=3.01"></script>
 </body>
 
 </html>

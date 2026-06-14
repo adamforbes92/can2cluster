@@ -8,35 +8,35 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 
-#include <TinyGPSPlus.h>     // included for GPS
-#include <SoftwareSerial.h>  // included for GPS
-#include <driver/twai.h>     // TWAI (CAN) for ESP32
-#include <Preferences.h>     // for eeprom/remember settings
-#include <WiFi.h>            // included for WiFi pages
-#include <ESPmDNS.h>         // included for WiFi pages
+#include <TinyGPSPlus.h>    // included for GPS
+#include <SoftwareSerial.h> // included for GPS
+#include <driver/twai.h>    // TWAI (CAN) for ESP32
+#include <Preferences.h>    // for eeprom/remember settings
+#include <WiFi.h>           // included for WiFi pages
+#include <ESPmDNS.h>        // included for WiFi pages
 #include <OneButton.h>
 
-#define FW_VERSION "3.00"
+#define FW_VERSION "3.01"
 
 /* Defines */
 // Debug statements
-#define serialDebug 0         // if 1, will use Serial talkback ** CAN CHANGE THIS **
-#define ChassisCANDebug 0     // if 1, will print CAN 2 (Chassis) messages ** CAN CHANGE THIS **
-#define serialDebugWifi 0     // for wifi feedback
-#define serialDebugEEP 0      // for EEP Serial feedback
-#define serialDebugGPS 0      // for GPS Serial feedback
-#define serialDebugPaddles 0  // for Paddle Serial feedback
-#define serialDebugDSG 0      // for DSG Serial feedback
-#define serialDebugIO 0       // for General IO Serial feedback
-#define detailedDebugStack 0
+#define serialDebug 0        // if 1, will use Serial talkback ** CAN CHANGE THIS **
+#define ChassisCANDebug 0    // if 1, will print CAN 2 (Chassis) messages ** CAN CHANGE THIS **
+#define serialDebugWifi 0    // for wifi feedback
+#define serialDebugEEP 0     // for EEP Serial feedback
+#define serialDebugGPS 0     // for GPS Serial feedback
+#define serialDebugPaddles 0 // for Paddle Serial feedback
+#define serialDebugDSG 0     // for DSG Serial feedback
+#define serialDebugIO 0      // for General IO Serial feedback
+#define detailedDebugStack 0 // for showing stack usage of each task (in showState() task)
 
-#define serialMonitorRefresh 1000  // serial monitor feedback in ms
-#define eepRefresh 5000            // EEPROM save in ms
-#define labelRefresh 200           // wifi label refresh in ms
-#define broadcastSpeedRefresh 20   // speed sending via. CAN in ms
-#define broadcastGRARefresh 20     // paddle (GRA) sending via. CAN in ms
-#define gearPause 20               // vTaskDelay (in _dsg.ino) for DSG refreshes
-#define rpmPause 5                 // vTaskDelay (in _io.ino) for RPM & Speed refreshes
+#define serialMonitorRefresh 1000 // serial monitor feedback in ms
+#define eepRefresh 5000           // EEPROM save in ms
+#define labelRefresh 200          // wifi label refresh in ms
+#define broadcastSpeedRefresh 20  // speed sending via. CAN in ms
+#define broadcastGRARefresh 20    // paddle (GRA) sending via. CAN in ms
+#define gearPause 20              // vTaskDelay (in _dsg.ino) for DSG refreshes
+#define rpmPause 5                // vTaskDelay (in _io.ino) for RPM & Speed refreshes
 
 // global object declarations
 extern SoftwareSerial ss;
@@ -46,65 +46,64 @@ extern OneButton btnPadUp;
 extern OneButton btnPadDown;
 
 // setup - main inputs
-#define speedUnits 0                   // 0 = kph, 1 = mph
-#define mphFactor 621371               // to convert from kmh > mph
-#define wifiHostName "Can2Cluster V2"  // the WiFi name
+#define mphFactor 621371              // to convert from kmh > mph (multiply, then /1000000)
+#define wifiHostName "Can2Cluster V3" // the WiFi name
 
 // setup - tweaky things
-#define shiftLightRate 100  // flash EPC at xx ms.  Decreasing may lead to a 'constant' light because of the human eye... ** CAN CHANGE THIS **
-#define durationReset 1500  // ms with no pulse before Hall/RPM input is considered stale and reset to 0
+#define shiftLightRate 100 // flash EPC at xx ms.  Decreasing may lead to a 'constant' light because of the human eye... ** CAN CHANGE THIS **
+#define durationReset 1500 // ms with no pulse before Hall/RPM input is considered stale and reset to 0
 
 // setup - cluster RPM & speed limits
-extern uint16_t clusterRPMLimit;  // rpm limit of the cluster face
-extern uint16_t shiftLimit;       // shift limit (for shift light)
-extern uint8_t shiftFlashes;      // number of flashes for shift light
+extern uint16_t clusterRPMLimit; // rpm limit of the cluster face
+extern uint16_t shiftLimit;      // shift limit (for shift light)
+extern uint8_t shiftFlashes;     // number of flashes for shift light
 extern uint8_t sweepSpeed;       // for needle sweep rate of change (in ms)
-extern uint16_t maxSpeed;         // maximum cluster speed in kmh on the cluster
-extern uint16_t maxRPM;           // maximum rpm in hz for the cluster
-extern uint16_t maxFreqHall;      // max frequency for top speed using the 02J / 02M hall sensor
-extern bool useEPCShiftLight;     // bool to use the EPC as a shift light
-extern bool useEMLShiftLight;     // bool to use the EML as a shift light
+extern uint16_t maxSpeed;        // maximum cluster speed in kmh on the cluster
+extern uint16_t maxRPM;          // maximum rpm in hz for the cluster
+extern uint16_t maxFreqHall;     // max frequency for top speed using the 02J / 02M hall sensor
+extern bool useEPCShiftLight;    // bool to use the EPC as a shift light
+extern bool useEMLShiftLight;    // bool to use the EML as a shift light
 
 // setup - step changes (for needle sweep)
 extern uint16_t stepRPM;
 extern uint16_t stepSpeed;
 
 // setup - pins (output)
-#define pinRX_CAN 17   // pin output for SN65HVD230 (CAN_RX)
-#define pinTX_CAN 16   // pin output for SN65HVD230 (CAN_TX)
-#define pinRX_GPS 14   // pin output for GPS NEO6M (GPS_RX)
-#define pinTX_GPS 13   // pin output for GPS NEO6M (GPS_TX)
-#define pinCoil 18     // pin output for RPM (MK2/High Output Coil Trigger)
-#define pinEPC 19      // pin output for EPC
-#define pinEML 21      // pin output for EML
-#define pinRPM 22      // pin output for RPM
-#define pinSpeed 23    // pin output for Speed
-#define onboardLED 2   // pin onboard LED
-#define pinReverse 26  // pin output for reverse mosfet
+#define pinRX_CAN 17  // pin output for SN65HVD230 (CAN_RX)
+#define pinTX_CAN 16  // pin output for SN65HVD230 (CAN_TX)
+#define pinRX_GPS 14  // pin output for GPS NEO6M (GPS_RX)
+#define pinTX_GPS 13  // pin output for GPS NEO6M (GPS_TX)
+#define pinCoil 18    // pin output for RPM (MK2/High Output Coil Trigger)
+#define pinEPC 19     // pin output for EPC
+#define pinEML 21     // pin output for EML
+#define pinRPM 22     // pin output for RPM
+#define pinSpeed 23   // pin output for Speed
+#define onboardLED 2  // pin onboard LED
+#define pinReverse 26 // pin output for reverse mosfet
 
 // setup - pins (inputs)
-#define pinPaddleUp 34    // pin input for DSG paddle up
-#define pinPaddleDown 35  // pin input for DSG paddle down
-#define pinHallSensor 25  // pin input for Hall Sensor
-#define pinRpmPulse 39    // pin input for engine RPM pulse
+#define pinPaddleUp 34   // pin input for DSG paddle up
+#define pinPaddleDown 35 // pin input for DSG paddle down
+#define pinHallSensor 25 // pin input for Hall Sensor
+#define pinRpmPulse 39   // pin input for engine RPM pulse
 
 // Baud Rates
-#define baudSerial 115200  // baud rate for debug
-#define baudGPS 9600       // baud rate for the GPS device
-#define baudCAN 500000     // baud rate for CAN
+#define baudSerial 115200 // baud rate for debug
+#define baudGPS 9600      // baud rate for the GPS device
+#define baudCAN 500000    // baud rate for CAN
 
 // DSG variables
 #ifndef PI
 #define PI 3.141592653589793
 #endif
-#define LEVER_P 0x8               // park position
-#define LEVER_R 0x7               // reverse position
-#define LEVER_N 0x6               // neutral position
-#define LEVER_D 0x5               // drive position
-#define LEVER_S 0xC               // spot position
-#define LEVER_TIPTRONIC_ON 0xE    // tiptronic active
-#define LEVER_TIPTRONIC_UP 0xA    // tiptronic up
-#define LEVER_TIPTRONIC_DOWN 0xB  // tiptronic down
+#define LEVER_P 0x8              // park position
+#define LEVER_R 0x7              // reverse position
+#define LEVER_N 0x6              // neutral position
+#define LEVER_D 0x5              // drive position
+#define LEVER_S 0xC              // spot position
+#define LEVER_TIPTRONIC_ON 0xE   // tiptronic active
+#define LEVER_TIPTRONIC_UP 0xA   // tiptronic up
+#define LEVER_TIPTRONIC_DOWN 0xB // tiptronic down
 
 #ifdef serialDebug
 #define DEBUG(x, ...) Serial.printf(x "\n", ##__VA_ARGS__)
@@ -180,108 +179,110 @@ extern uint16_t stepSpeed;
 #define DEBUG_UDS_(x, ...)
 #endif
 
-extern uint8_t vehicleCoolantTemp;  // for vehicle coolant temp
-extern uint16_t vehicleRPMCAN;      // current CAN RPM
-extern uint16_t vehicleRPM;         // current RPM for cluster
-extern uint16_t vehicleSpeed;       // current Speed for cluster
-extern uint16_t calcSpeed;          // temp var for calculating speed
-extern long tempSpeed;              // for testing only, set fixed speed in kmh.  Can set to 0 to speed up / slow down on repeat with testSpeed enabled
-extern long tempRPM;                // for testing only, set fixed speed in kmh.  Can set to 0 to speed up / slow down on repeat with testSpeed enabled
-extern long frequencyRPM;           // inital / base freq.
-extern long frequencySpeed;         // inital / base freq.
+extern uint8_t vehicleCoolantTemp; // for vehicle coolant temp
+extern uint16_t vehicleRPMCAN;     // current CAN RPM
+extern uint16_t vehicleRPM;        // current RPM for cluster
+extern uint16_t vehicleSpeed;      // current Speed for cluster
+extern uint16_t calcSpeed;         // temp var for calculating speed
+extern long tempSpeed;             // for testing only, set fixed speed in kmh.  Can set to 0 to speed up / slow down on repeat with testSpeed enabled
+extern long tempRPM;               // for testing only, set fixed speed in kmh.  Can set to 0 to speed up / slow down on repeat with testSpeed enabled
+extern long frequencyRPM;          // inital / base freq.
+extern long frequencySpeed;        // inital / base freq.
 
-extern double ecuSpeed;   // ECU speed (from analog speed sensor)
-extern double dsgSpeed;   // DSG speed (from RPM & Gear), ratios in '_dsg.ino'
-extern double gpsSpeed;   // GPS speed (from '_gps.ino')
-extern double absSpeed;   // ABS speed (from '_gps.ino')
-extern double hallSpeed;  // current Speed.  If no CAN, this will catch dividing by zero by the map function
+extern double ecuSpeed;  // ECU speed (from analog speed sensor)
+extern double dsgSpeed;  // DSG speed (from RPM & Gear), ratios in '_dsg.ino'
+extern double gpsSpeed;  // GPS speed (from '_gps.ino')
+extern double absSpeed;  // ABS speed (from '_gps.ino')
+extern double hallSpeed; // current Speed.  If no CAN, this will catch dividing by zero by the map function
 
 extern bool rpmTrigger;
 extern bool speedTrigger;
 
 // DSG variables
-extern uint8_t gear;       // current gear from DSG
-extern uint8_t lever;      // shifter position
-extern uint8_t gear_raw;   // gear 'raw' data from DSG
-extern uint8_t lever_raw;  // lever 'raw' data from DSG
-extern uint32_t lastMillis;       // Counter for sending frames x ms
-extern uint32_t lastMillis2;      // Counter for sending frames x ms
-extern uint32_t lastCAN;   // last CAN message
+extern uint8_t gear;         // current gear from DSG
+extern uint8_t lever;        // shifter position
+extern uint8_t gear_raw;     // gear 'raw' data from DSG
+extern uint8_t lever_raw;    // lever 'raw' data from DSG
+extern uint32_t lastMillis;  // Counter for sending frames x ms
+extern uint32_t lastMillis2; // Counter for sending frames x ms
+extern uint32_t lastCAN;     // last CAN message
 extern volatile unsigned long lastPulse;
-extern volatile unsigned long dutyCycleIncoming;  // Duty Cycle % coming in from Can2Cluster or Hall
-extern volatile unsigned long dutyCycleMotor;     // incoming engine RPM pulse frequency (Hz)
-extern volatile unsigned long lastPulseRPM;       // timestamp of last engine RPM pulse
+extern volatile unsigned long dutyCycleIncoming; // Duty Cycle % coming in from Can2Cluster or Hall
+extern volatile unsigned long dutyCycleMotor;    // incoming engine RPM pulse frequency (Hz)
+extern volatile unsigned long lastPulseRPM;      // timestamp of last engine RPM pulse
 
 // ECU variables
-extern bool vehicleEML;          // current EML light status
-extern bool vehicleEPC;          // current EPC light status
-extern bool vehiclePark;         // current Park status (from DSG)
-extern bool vehicleNeutral;      // current Neutral status (from DSG)
-extern bool vehicleReverse;      // current Reverse status (from DSG)
-extern bool vehicleOilPressure;  // current oil pressure (from Ford)
-extern bool vehicleBattLight;    // current battery light (from Ford)
-extern uint8_t GRA_counter;      // for paddle frames
-extern uint8_t GRA_crc;          // for paddle frames
+extern bool vehicleEML;         // current EML light status
+extern bool vehicleEPC;         // current EPC light status
+extern bool vehiclePark;        // current Park status (from DSG)
+extern bool vehicleNeutral;     // current Neutral status (from DSG)
+extern bool vehicleReverse;     // current Reverse status (from DSG)
+extern bool vehicleOilPressure; // current oil pressure (from Ford)
+extern bool vehicleBattLight;   // current battery light (from Ford)
+extern uint8_t GRA_counter;     // for paddle frames
+extern uint8_t GRA_crc;         // for paddle frames
 
 // external variables / triggers
-extern bool boolPadUp;    // current EML light status
-extern bool boolPadDown;  // current EPC light status
-extern volatile bool padUpTxPending;    // one-shot CAN transmit trigger for paddle up
-extern volatile bool padDownTxPending;  // one-shot CAN transmit trigger for paddle down
+extern bool boolPadUp;                 // current EML light status
+extern bool boolPadDown;               // current EPC light status
+extern volatile bool padUpTxPending;   // one-shot CAN transmit trigger for paddle up
+extern volatile bool padDownTxPending; // one-shot CAN transmit trigger for paddle down
 
 // for eep - settings via. WiFi
-extern bool useHall;  // type of speed input to use: hall sensor
-extern bool useECU;   // type of speed input to use: ECU via. CAN (MOTOR2_ID)
-extern bool useDSG;   // type of speed input to use: DSG via. CAN (parseDSG) - based on RPM/Current Gear (ratios are key!)
-extern bool useGPS;   // type of speed input to use: GPS Module (Neo6M)
-extern bool useABS;   // type of speed input to use: ABS via. CAN (BRAKES3_ID)
-extern bool useTP20;  // type of speed input to use: TP2.0 DSG speed via. CAN
-extern bool useUDS;   // type of speed input to use: UDS speed via. CAN
-extern bool useHallRPM;   // type of RPM input to use: hall pulse (GPIO39) vs CAN
-extern bool coilType;  // has 'old' RPM output
+extern bool useHall;    // type of speed input to use: hall sensor
+extern bool useECU;     // type of speed input to use: ECU via. CAN (MOTOR2_ID)
+extern bool useDSG;     // type of speed input to use: DSG via. CAN (parseDSG) - based on RPM/Current Gear (ratios are key!)
+extern bool useGPS;     // type of speed input to use: GPS Module (Neo6M)
+extern bool useABS;     // type of speed input to use: ABS via. CAN (BRAKES3_ID)
+extern bool useTP20;    // type of speed input to use: TP2.0 DSG speed via. CAN
+extern bool useUDS;     // type of speed input to use: UDS speed via. CAN
+extern bool useHallRPM; // type of RPM input to use: hall pulse (GPIO39) vs CAN
+extern bool coilType;   // has 'old' RPM output
+extern bool useMPH;     // display/output cluster speed in MPH instead of km/h
 
-extern bool hasError;         // for flashing onboard LED (no CAN)
-extern bool triggerLED;       // bool to flipfloo LED
-extern bool selfTest;         // increase RPM/speed slowly, flash lights.  For debug only, disable on release!
-extern bool hasNeedleSweep;   // do needle sweep on power up?
-extern bool hasCAN;           // bool for 'has CAN' coming in
+extern bool hasError;       // for flashing onboard LED (no CAN)
+extern bool triggerLED;     // bool to flipfloo LED
+extern bool diagTest;       // bench diagnostic mode: cycles every output to verify hardware (persisted)
+extern bool hasNeedleSweep; // do needle sweep on power up?
+extern bool hasCAN;         // bool for 'has CAN' coming in
 
-extern bool hasGPS;           // bool for 'has GPS' >1 satellite
-extern bool gpsUnavailable;   // true when GPS hardware not responding (timeout)
+extern bool hasGPS;         // bool for 'has GPS' >1 satellite
+extern bool gpsUnavailable; // true when GPS hardware not responding (timeout)
 extern bool gpsError;
 extern uint8_t gpsUpdateRateHz; // persisted GPS update rate: 1/5/10/16 Hz
 extern TaskHandle_t gpsTaskHandle;
 extern TaskHandle_t updateSpeedHandle;
 extern TaskHandle_t updateRPMHandle;
-extern bool tempNeedleSweep;  // bool to set flag for temp needle sweep (for testing)
-extern bool testSpeedo;       // for testing only, vary final pwmFrequency for speed
-extern bool testRPM;          // for testing only, vary final pwmFrequency for RPM
-extern bool useAftermarket;           // speed input: custom CAN (aftermarket)
-extern uint32_t aftermarketSpeedID;      // CAN ID to listen on for aftermarket speed
-extern uint8_t aftermarketSpeedLowByte;  // byte index holding the speed LSB
-extern uint8_t aftermarketSpeedHighByte; // byte index holding the speed MSB
+extern bool tempNeedleSweep;              // bool to set flag for temp needle sweep (for testing)
+extern bool testSpeedo;                   // for testing only, vary final pwmFrequency for speed
+extern bool testRPM;                      // for testing only, vary final pwmFrequency for RPM
+extern bool useAftermarket;               // speed input: custom CAN (aftermarket)
+extern uint32_t aftermarketSpeedID;       // CAN ID to listen on for aftermarket speed
+extern uint8_t aftermarketSpeedLowByte;   // byte index holding the speed LSB
+extern uint8_t aftermarketSpeedHighByte;  // byte index holding the speed MSB
 extern bool aftermarketSpeedLittleEndian; // true = LSB at lowByte index
-extern float aftermarketSpeedScale;      // scale applied to raw value
-extern int16_t aftermarketSpeedOffset;   // offset applied after scale
-extern double aftermarketSpeed;          // parsed speed from aftermarket CAN frame
-extern bool broadcastSpeedEnabled;   // bool to enable speed CAN frame broadcast
-extern uint32_t broadcastSpeedID;    // CAN ID used for speed broadcast frames
-extern uint8_t broadcastSpeedDLC;    // DLC used for speed broadcast frames (0-8)
-extern uint8_t broadcastSpeedLowByte;   // payload byte index for speed low byte
-extern uint8_t broadcastSpeedHighByte;  // payload byte index for speed high byte
-extern bool broadcastSpeedLittleEndian; // true = low/high order, false = high/low
-extern float broadcastSpeedScale;     // scale applied to final vehicleSpeed before send
-extern int16_t broadcastSpeedOffset;  // offset applied after scaling before send
-extern uint16_t broadcastSpeedValue;  // last computed value packed into speed frame
-extern uint8_t broadcastSpeedData[8]; // static payload template bytes
-extern bool tempShiftLight;   // for testing only, flash EML/EPC if set
-extern bool testEML;          // bool to force turn on EML
-extern bool testEPC;          // bool to force turn on EPC
-extern bool testReverse;      // bool to force turn on Reverse
-extern String dsgParkMode;    // DSG Park behavior: "None", "EML", or "EPC"
+extern float aftermarketSpeedScale;       // scale applied to raw value
+extern int16_t aftermarketSpeedOffset;    // offset applied after scale
+extern double aftermarketSpeed;           // parsed speed from aftermarket CAN frame
+extern bool broadcastSpeedEnabled;        // bool to enable speed CAN frame broadcast
+extern uint32_t broadcastSpeedID;         // CAN ID used for speed broadcast frames
+extern uint8_t broadcastSpeedDLC;         // DLC used for speed broadcast frames (0-8)
+extern uint8_t broadcastSpeedLowByte;     // payload byte index for speed low byte
+extern uint8_t broadcastSpeedHighByte;    // payload byte index for speed high byte
+extern bool broadcastSpeedLittleEndian;   // true = low/high order, false = high/low
+extern float broadcastSpeedScale;         // scale applied to final vehicleSpeed before send
+extern int16_t broadcastSpeedOffset;      // offset applied after scaling before send
+extern uint16_t broadcastSpeedValue;      // last computed value packed into speed frame
+extern uint8_t broadcastSpeedData[8];     // static payload template bytes
+extern bool tempShiftLight;               // for testing only, flash EML/EPC if set
+extern bool testEML;                      // bool to force turn on EML
+extern bool testEPC;                      // bool to force turn on EPC
+extern bool testReverse;                  // bool to force turn on Reverse
+extern String dsgParkMode;                // DSG Park behavior: "None", "EML", or "EPC"
 
 // Blink LED state
-struct BlinkState {
+struct BlinkState
+{
   bool active;
   int flashCount;
   int currentFlash;
@@ -320,7 +321,7 @@ extern uint32_t stackcheckError;
 
 #define MOTOR_FLEX_ID 0x580
 #define GRA_ID 0x38A
-#define gear_ID 0x440  // lower 4 bits of byte 2 are gear?
+#define gear_ID 0x440 // lower 4 bits of byte 2 are gear?
 
 #define BRAKES1_ID 0x1A0
 #define BRAKES2_ID 0x2A0
@@ -328,7 +329,7 @@ extern uint32_t stackcheckError;
 #define BRAKES5_ID 0x5A0
 
 #define gearLever_ID 0x448
-#define mWaehlhebel_1_ID 0x540  // DQ250 DSG ID
+#define mWaehlhebel_1_ID 0x540 // DQ250 DSG ID
 
 #define HALDEX_ID 0x2C0
 
@@ -342,7 +343,7 @@ extern uint32_t stackcheckError;
 extern void basicInit(void);
 extern void checkError(void *args);
 extern void canInit(void);
-extern void onBodyRX(const twai_message_t& frame);
+extern void onBodyRX(const twai_message_t &frame);
 extern void needleSweep(void);
 extern void setupPins(void);
 extern void blinkLED(int duration, int flashes, bool boolEPC, bool boolEML, bool boolRPM, bool boolSpeed);
@@ -361,7 +362,7 @@ extern void writeEEP();
 // for tasks
 extern void setupTasks();
 extern void showState();
-extern void diagTest(void);
+extern void diagTestTask(void *args);
 
 // for buttons
 extern void padUpFunc(void);
@@ -375,14 +376,14 @@ extern void disconnectWifi();
 extern void setupUI();
 
 extern bool autoDiagQuery;
-extern double dsgUDSSpeed;    // legacy alias (TP2.0 DSG speed)
+extern double dsgUDSSpeed; // legacy alias (TP2.0 DSG speed)
 extern double haldexUDSSpeed;
-extern uint16_t tp20Speed;    // speed from TP2.0 protocol
-extern uint16_t udsSpeed;     // speed from UDS protocol
+extern uint16_t tp20Speed; // speed from TP2.0 protocol
+extern uint16_t udsSpeed;  // speed from UDS protocol
 
 // SavvyCAN / Analyzer
-extern bool    analyzerMode;     // WiFi GVRET/SLCAN (TCP port 23)
-extern bool    analyzerSerial;   // Serial GVRET (SavvyCAN over USB, 1 Mbaud)
+extern bool analyzerMode;        // WiFi GVRET/SLCAN (TCP port 23)
+extern bool analyzerSerial;      // Serial GVRET (SavvyCAN over USB, 1 Mbaud)
 extern uint8_t analyzerProtocol; // ANALYZER_PROTOCOL_GVRET or ANALYZER_PROTOCOL_LAWICEL
 extern uint8_t gpsSatellites;
 
@@ -390,4 +391,4 @@ extern int label_speedDSGUds;
 extern int label_speedHaldexUds;
 extern uint16_t bool_autoDiagQuery;
 
-#endif  // CAN2CLUSTER_DEFS_H
+#endif // CAN2CLUSTER_DEFS_H

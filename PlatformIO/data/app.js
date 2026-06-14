@@ -88,7 +88,7 @@ function initControls() {
   }
 
   // Configuration controls
-  const configInputs = ['hasNeedleSweep', 'sweepSpeed', 'stepRPM', 'stepSpeed', 'shiftLight', 'shiftLimit', 'shiftFlashes', 'coilType', 'dsgParkMode'];
+  const configInputs = ['hasNeedleSweep', 'sweepSpeed', 'stepRPM', 'stepSpeed', 'shiftLight', 'shiftLimit', 'shiftFlashes', 'coilType', 'useMPH', 'dsgParkMode'];
   configInputs.forEach(id => {
     const el = document.getElementById(id);
     if (el) {
@@ -109,7 +109,7 @@ function initControls() {
     'broadcastSpeedData4', 'broadcastSpeedData5', 'broadcastSpeedData6', 'broadcastSpeedData7',
     'aftermarketSpeedID', 'aftermarketSpeedLowByte', 'aftermarketSpeedHighByte',
     'aftermarketSpeedLittleEndian', 'aftermarketSpeedScale', 'aftermarketSpeedOffset',
-    'testReverse', 'testEML', 'testEPC'
+    'testReverse', 'testEML', 'testEPC', 'diagTest'
   ];
   advancedInputs.forEach(id => {
     const el = document.getElementById(id);
@@ -243,6 +243,26 @@ function initControls() {
       pushControl('maxFreqHall', 200);
     });
   }
+
+  // CAN Analyzer - SavvyCAN: WiFi and Serial are mutually exclusive
+  const analyzerModeEl = document.getElementById('analyzerMode');
+  const analyzerSerialEl = document.getElementById('analyzerSerial');
+  if (analyzerModeEl && analyzerSerialEl) {
+    analyzerModeEl.addEventListener('change', () => {
+      if (analyzerModeEl.checked) {
+        analyzerSerialEl.checked = false;
+        pushControl('analyzerSerial', false);
+      }
+      pushControl('analyzerMode', analyzerModeEl.checked);
+    });
+    analyzerSerialEl.addEventListener('change', () => {
+      if (analyzerSerialEl.checked) {
+        analyzerModeEl.checked = false;
+        pushControl('analyzerMode', false);
+      }
+      pushControl('analyzerSerial', analyzerSerialEl.checked);
+    });
+  }
 }
 
 async function fetchSettings() {
@@ -259,6 +279,9 @@ async function fetchSettings() {
     document.getElementById('shiftLimit').value = data.shiftLimit || 0;
     document.getElementById('shiftFlashes').value = data.shiftFlashes || 0;
     document.getElementById('coilType').checked = data.coilType || false;
+    const useMPHEl = document.getElementById('useMPH');
+    if (useMPHEl) useMPHEl.checked = data.useMPH || false;
+    applySpeedUnitLabels(data.useMPH);
     document.getElementById('dsgParkMode').value = data.dsgParkMode || 'None';
 
     // Advanced controls
@@ -301,6 +324,12 @@ async function fetchSettings() {
     document.getElementById('testReverse').checked = data.testReverse || false;
     document.getElementById('testEML').checked = data.testEML || false;
     document.getElementById('testEPC').checked = data.testEPC || false;
+    const diagTestEl = document.getElementById('diagTest');
+    if (diagTestEl) diagTestEl.checked = data.diagTest || false;
+    const analyzerModeEl = document.getElementById('analyzerMode');
+    if (analyzerModeEl) analyzerModeEl.checked = data.analyzerMode || false;
+    const analyzerSerialEl = document.getElementById('analyzerSerial');
+    if (analyzerSerialEl) analyzerSerialEl.checked = data.analyzerSerial || false;
 
     // Speed type dropdown - map speedType to dropdown options
     let speedTypeValue = 'Hall';  // default
@@ -364,11 +393,11 @@ async function fetchStatus() {
     const testReverseActive = data.testReverse || false;
 
     // Update dashboard live data with highlighting for tested values
+    applySpeedUnitLabels(data.useMPH);
     const speedEl = document.getElementById('speed');
     speedEl.textContent = data.vehicleSpeed || '--';
     speedEl.style.color = testSpeedActive ? 'orange' : '';
-    speedEl.title = testSpeedActive ? 'Test Mode: ' + (data.tempSpeed || 0) + ' km/h' : '';
-
+    speedEl.title = testSpeedActive ? 'Test Mode: ' + (data.tempSpeed || 0) + (data.useMPH ? ' MPH' : ' KMH') : '';
     const rpmEl = document.getElementById('rpm');
     rpmEl.textContent = data.vehicleRPM || '--';
     rpmEl.style.color = testRPMActive ? 'orange' : '';
@@ -487,6 +516,14 @@ async function fetchStatus() {
   } catch (error) {
     console.log('Error fetching status:', error);
   }
+}
+
+function applySpeedUnitLabels(useMPH) {
+  const label = useMPH ? 'MPH' : 'KMH';
+  const speedUnitEl = document.getElementById('speedUnit');
+  if (speedUnitEl) speedUnitEl.textContent = label;
+  const tempSpeedUnitEl = document.getElementById('tempSpeed-unit');
+  if (tempSpeedUnitEl) tempSpeedUnitEl.textContent = label;
 }
 
 function pushControl(key, value) {

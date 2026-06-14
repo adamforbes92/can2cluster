@@ -5,9 +5,12 @@ All outputs are configurable 12v Square Wave with definable max limits based on 
 Main features:
 > 12v Positive output for reverse light (5A max!)
 > RPM/Speed/EML/EPC outputs (200mA max!)
+> GPS input for speedo and odometer (1Hz or 5Hz update)
 > DSG Paddles (ground to activate)
 > Needle sweep & shift light
-> WiFi config.
+> WiFi config
+> SavvyCAN / GVRET implementation for CAN analysis (TCP:23 or Serial 1Mbaud)
+> DSG / TP2.0 & UDS Support
 
 Forbes-Automotive, 2025
 */
@@ -58,10 +61,6 @@ void loop() {
   }
 
   updateButtons();
-
-  if (selfTest) {
-    diagTest();  // purely for bench debugging
-  }
 
   if (tempNeedleSweep) {
     tasksSuspendAll();

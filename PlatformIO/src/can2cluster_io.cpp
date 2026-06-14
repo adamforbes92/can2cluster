@@ -336,66 +336,62 @@ void updateBlinkLED(void)
   }
 }
 
-void diagTest()
+// Bench diagnostic task. While the `diagTest` flag is true, every output is
+// driven from this task: vehicleRPM/Speed ramp up, every other speed source
+// is bumped (so the WiFi live page shows them), and EML/EPC/Reverse/Park
+// toggle so each pin can be verified with a meter. updateSpeed/updateRPM and
+// the shift-light blink path check `diagTest` and skip while it's active so
+// they don't fight this task.
+void diagTestTask(void *args)
 {
-  vehicleRPM += 1000;
-  vehicleSpeed += 10;
-  ecuSpeed += 10;
-  absSpeed += 12;
-  dsgSpeed += 14;
-  gpsSpeed += 16;
-  dsgUDSSpeed += 18;
-  hallSpeed += 20;
+  while (1)
+  {
+    if (!diagTest)
+    {
+      vTaskDelay(pdMS_TO_TICKS(100));
+      continue;
+    }
 
-  if (vehicleRPM > clusterRPMLimit)
-  {
-    vehicleRPM = 1000;
-    frequencyRPM = 1;
-  }
-  if (vehicleSpeed > maxSpeed)
-  {
-    vehicleSpeed = 1;
-    frequencySpeed = 1;
-  }
-  if (hallSpeed > maxSpeed)
-  {
-    hallSpeed = 1;
-    frequencySpeed = 1;
-  }
-  if (ecuSpeed > maxSpeed)
-  {
-    ecuSpeed = 1;
-    frequencySpeed = 1;
-  }
-  if (absSpeed > maxSpeed)
-  {
-    absSpeed = 1;
-    frequencySpeed = 1;
-  }
-  if (dsgSpeed > maxSpeed)
-  {
-    dsgSpeed = 1;
-    frequencySpeed = 1;
-  }
-  if (dsgUDSSpeed > maxSpeed)
-  {
-    dsgUDSSpeed = 1;
-    frequencySpeed = 1;
-  }
-  if (gpsSpeed > maxSpeed)
-  {
-    gpsSpeed = 1;
-    frequencySpeed = 1;
-  }
+    vehicleRPM   += 500;
+    vehicleSpeed += 5;
+    ecuSpeed     += 5;
+    absSpeed     += 6;
+    dsgSpeed     += 7;
+    gpsSpeed     += 8;
+    dsgUDSSpeed  += 9;
+    tp20Speed    += 9;
+    udsSpeed     += 9;
+    hallSpeed    += 10;
 
-  vehicleReverse = !vehicleReverse;
-  hasCAN = !hasCAN;
-  hasGPS = !hasGPS;
-  vehicleEML = !vehicleEML;
-  vehicleEPC = !vehicleEPC;
-  vehiclePark = !vehiclePark;
+    if (vehicleRPM   > clusterRPMLimit) vehicleRPM   = 1000;
+    if (vehicleSpeed > maxSpeed)        vehicleSpeed = 1;
+    if (hallSpeed    > maxSpeed)        hallSpeed    = 1;
+    if (ecuSpeed     > maxSpeed)        ecuSpeed     = 1;
+    if (absSpeed     > maxSpeed)        absSpeed     = 1;
+    if (dsgSpeed     > maxSpeed)        dsgSpeed     = 1;
+    if (dsgUDSSpeed  > maxSpeed)        dsgUDSSpeed  = 1;
+    if (tp20Speed    > maxSpeed)        tp20Speed    = 1;
+    if (udsSpeed     > maxSpeed)        udsSpeed     = 1;
+    if (gpsSpeed     > maxSpeed)        gpsSpeed     = 1;
 
-  blinkLED(500, 1, 1, 1, 0, 0);
+    // Drive the cluster outputs directly so updateSpeed/updateRPM staying
+    // idle doesn't leave the LEDC frequencies stale.
+    frequencyRPM   = map(vehicleRPM,   0, clusterRPMLimit, 0, maxRPM);
+    frequencySpeed = map(vehicleSpeed, 0, maxSpeed,        0, maxSpeed);
+    setFrequencyRPM(frequencyRPM);
+    setFrequencySpeed(frequencySpeed);
+
+    vehicleReverse = !vehicleReverse;
+    vehicleEML     = !vehicleEML;
+    vehicleEPC     = !vehicleEPC;
+    vehiclePark    = !vehiclePark;
+    hasCAN         = !hasCAN;
+    hasGPS         = !hasGPS;
+
+    blinkLED(500, 1, 1, 1, 0, 0);
+
+    vTaskDelay(pdMS_TO_TICKS(500));
+  }
 }
 
 // adjust output frequency

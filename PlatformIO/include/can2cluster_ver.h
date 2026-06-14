@@ -25,4 +25,5 @@ V2.00 - added TP/UDS querying for DSG speed (for models that don't broadcast it 
 V2.01 - added GPS update rate configuration 
 
 V3.00 - revised GPS to match SpeedPulserPro and added OTA with filesystem AND firmware
+V3.01 - added cluster in MPH and SavvyCAN implementation for CAN analysis (TCP:23 or Serial 1Mbaud)
 */

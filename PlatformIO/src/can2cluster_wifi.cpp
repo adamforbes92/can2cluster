@@ -1,4 +1,5 @@
 #include "can2cluster_wifi.h"
+#include "can2cluster_savvycan.h"
 #include "can2cluster_gps.h"
 #include <ArduinoJson.h>
 #include <LittleFS.h>
@@ -190,6 +191,10 @@ void setupWebRoutes()
     doc["shiftFlashes"] = shiftFlashes;
     doc["coilType"] = coilType;
     doc["useCoil"] = coilType;
+    doc["useMPH"] = useMPH;
+    doc["diagTest"] = diagTest;
+    doc["analyzerMode"] = analyzerMode;
+    doc["analyzerSerial"] = analyzerSerial;
     doc["dsgParkMode"] = dsgParkMode;
     
     // Advanced controls
@@ -283,6 +288,10 @@ void setupWebRoutes()
     doc["broadcastSpeedEnabled"] = broadcastSpeedEnabled;
     doc["broadcastSpeedValue"] = broadcastSpeedValue;
     doc["aftermarketSpeed"] = aftermarketSpeed;
+    doc["useMPH"] = useMPH;
+    doc["diagTest"] = diagTest;
+    doc["analyzerMode"] = analyzerMode;
+    doc["analyzerSerial"] = analyzerSerial;
     doc["freeHeap"] = ESP.getFreeHeap();
     
     /*
@@ -379,6 +388,26 @@ void setupWebRoutes()
     }
     if (key == "coilType" || key == "useCoil") {
       coilType = value.as<bool>();
+      settingApplied = true;
+    }
+    if (key == "useMPH") {
+      useMPH = value.as<bool>();
+      settingApplied = true;
+    }
+    if (key == "diagTest") {
+      diagTest = value.as<bool>();
+      settingApplied = true;
+    }
+    if (key == "analyzerMode") {
+      analyzerMode = value.as<bool>();
+      if (analyzerMode) analyzerSerial = false;  // mutually exclusive
+      setAnalyzerMode(analyzerMode);
+      settingApplied = true;
+    }
+    if (key == "analyzerSerial") {
+      analyzerSerial = value.as<bool>();
+      if (analyzerSerial) analyzerMode = false;  // mutually exclusive
+      setAnalyzerSerialMode(analyzerSerial);
       settingApplied = true;
     }
     if (key == "dsgParkMode") {

@@ -71,10 +71,11 @@ bool useTP20 = false;
 bool useUDS  = false;
 bool useHallRPM = false;
 bool coilType = true;
+bool useMPH = false;
 
 bool hasError = false;
 bool triggerLED = false;
-bool selfTest = false;
+bool diagTest = false;
 bool hasNeedleSweep = false;
 bool hasCAN = false;
 
