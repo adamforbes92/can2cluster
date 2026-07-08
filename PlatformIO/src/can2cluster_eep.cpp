@@ -1,17 +1,13 @@
 #include "can2cluster_eep.h"
 
 void readEEP() {
-#if serialDebugEEP
-  DEBUG("EEPROM initialising!");
-#endif
+  DEBUG_EEP("EEPROM initialising!");
 
   pref.begin("can2cluster", false);
 
   // First boot: seed NVS with current defaults.
   if (!pref.isKey("useHall")) {
-#if serialDebugEEP
-    DEBUG("First run...");
-#endif
+    DEBUG_EEP("First run...");
     pref.putBool("useHall", useHall);
     pref.putBool("useECU", useECU);
     pref.putBool("useDSG", useDSG);
@@ -134,41 +130,41 @@ void readEEP() {
     aftermarketSpeedOffset = pref.getShort("amSpeedOffset", 0);
   }
 #if serialDebugEEP
-  DEBUG("EEPROM initialised with...");
-  DEBUG("useHall: %d", useHall);
-  DEBUG("useECU: %d", useECU);
-  DEBUG("useDSG: %d", useDSG);
-  DEBUG("useGPS: %d", useGPS);
-  DEBUG("useABS: %d", useABS);
-  DEBUG("useTP20: %d", useTP20);
-  DEBUG("useHallRPM: %d", useHallRPM);
-  DEBUG("coilType: %d", coilType);
-  DEBUG("useEMLShiftLight: %d", useEMLShiftLight);
-  DEBUG("useEPCShiftLight: %d", useEPCShiftLight);
-  DEBUG("hasNeedleSweep: %d", hasNeedleSweep);
-  DEBUG("clusterRPMLimit: %d", clusterRPMLimit);
-  DEBUG("shiftLimit: %d", shiftLimit);
-  DEBUG("shiftFlashes: %d", shiftFlashes);
-  DEBUG("sweepSpeed: %d", sweepSpeed);
-  DEBUG("maxSpeed: %d", maxSpeed);
-  DEBUG("maxRPM: %d", maxRPM);
-  DEBUG("maxFreqHall: %d", maxFreqHall);
-  DEBUG("stepRPM: %d", stepRPM);
-  DEBUG("stepSpeed: %d", stepSpeed);
-  DEBUG("testReverse: %d", testReverse);
-  DEBUG("testEML: %d", testEML);
-  DEBUG("testEPC: %d", testEPC);
-  DEBUG("gpsUpdateRateHz: %d", gpsUpdateRateHz);
-  DEBUG("broadcastSpeedEnabled: %d", broadcastSpeedEnabled);
-  DEBUG("broadcastSpeedID: 0x%03X", broadcastSpeedID);
-  DEBUG("broadcastSpeedDLC: %d", broadcastSpeedDLC);
-  DEBUG("broadcastSpeedLowByte: %d", broadcastSpeedLowByte);
-  DEBUG("broadcastSpeedHighByte: %d", broadcastSpeedHighByte);
-  DEBUG("broadcastSpeedLittleEndian: %d", broadcastSpeedLittleEndian);
-  DEBUG("broadcastSpeedScale: %.3f", broadcastSpeedScale);
-  DEBUG("broadcastSpeedOffset: %d", broadcastSpeedOffset);
-  DEBUG("dsgParkMode: %s", dsgParkMode.c_str());
-  DEBUG("autoDiagQuery: %d", autoDiagQuery);
+  DEBUG_EEP("EEPROM initialised with...");
+  DEBUG_EEP("useHall: %d", useHall);
+  DEBUG_EEP("useECU: %d", useECU);
+  DEBUG_EEP("useDSG: %d", useDSG);
+  DEBUG_EEP("useGPS: %d", useGPS);
+  DEBUG_EEP("useABS: %d", useABS);
+  DEBUG_EEP("useTP20: %d", useTP20);
+  DEBUG_EEP("useHallRPM: %d", useHallRPM);
+  DEBUG_EEP("coilType: %d", coilType);
+  DEBUG_EEP("useEMLShiftLight: %d", useEMLShiftLight);
+  DEBUG_EEP("useEPCShiftLight: %d", useEPCShiftLight);
+  DEBUG_EEP("hasNeedleSweep: %d", hasNeedleSweep);
+  DEBUG_EEP("clusterRPMLimit: %d", clusterRPMLimit);
+  DEBUG_EEP("shiftLimit: %d", shiftLimit);
+  DEBUG_EEP("shiftFlashes: %d", shiftFlashes);
+  DEBUG_EEP("sweepSpeed: %d", sweepSpeed);
+  DEBUG_EEP("maxSpeed: %d", maxSpeed);
+  DEBUG_EEP("maxRPM: %d", maxRPM);
+  DEBUG_EEP("maxFreqHall: %d", maxFreqHall);
+  DEBUG_EEP("stepRPM: %d", stepRPM);
+  DEBUG_EEP("stepSpeed: %d", stepSpeed);
+  DEBUG_EEP("testReverse: %d", testReverse);
+  DEBUG_EEP("testEML: %d", testEML);
+  DEBUG_EEP("testEPC: %d", testEPC);
+  DEBUG_EEP("gpsUpdateRateHz: %d", gpsUpdateRateHz);
+  DEBUG_EEP("broadcastSpeedEnabled: %d", broadcastSpeedEnabled);
+  DEBUG_EEP("broadcastSpeedID: 0x%03X", broadcastSpeedID);
+  DEBUG_EEP("broadcastSpeedDLC: %d", broadcastSpeedDLC);
+  DEBUG_EEP("broadcastSpeedLowByte: %d", broadcastSpeedLowByte);
+  DEBUG_EEP("broadcastSpeedHighByte: %d", broadcastSpeedHighByte);
+  DEBUG_EEP("broadcastSpeedLittleEndian: %d", broadcastSpeedLittleEndian);
+  DEBUG_EEP("broadcastSpeedScale: %.3f", broadcastSpeedScale);
+  DEBUG_EEP("broadcastSpeedOffset: %d", broadcastSpeedOffset);
+  DEBUG_EEP("dsgParkMode: %s", dsgParkMode.c_str());
+  DEBUG_EEP("autoDiagQuery: %d", autoDiagQuery);
 #endif
 }
 
@@ -178,9 +174,7 @@ void writeEEP(void *args) {
     stackWriteEEP = uxTaskGetStackHighWaterMark(NULL);  // for capturing how much memory the task is using
 #endif
 
-#if serialDebugEEP
-    DEBUG("Writing EEPROM...");
-#endif
+    DEBUG_EEP("Writing EEPROM...");
 
     pref.putBool("useHall", useHall);
     pref.putBool("useECU", useECU);
@@ -238,41 +232,41 @@ void writeEEP(void *args) {
     pref.putShort("amSpeedOffset", aftermarketSpeedOffset);
 
 #if serialDebugEEP
-    DEBUG("Written EEPROM with data:");
-    DEBUG("useHall: %d", useHall);
-    DEBUG("useECU: %d", useECU);
-    DEBUG("useDSG: %d", useDSG);
-    DEBUG("useGPS: %d", useGPS);
-    DEBUG("useABS: %d", useABS);
-    DEBUG("useTP20: %d", useTP20);
-    DEBUG("useHallRPM: %d", useHallRPM);
-    DEBUG("coilType: %d", coilType);
-    DEBUG("useEMLShiftLight: %d", useEMLShiftLight);
-    DEBUG("useEPCShiftLight: %d", useEPCShiftLight);
-    DEBUG("hasNeedleSweep: %d", hasNeedleSweep);
-    DEBUG("clusterRPMLimit: %d", clusterRPMLimit);
-    DEBUG("shiftLimit: %d", shiftLimit);
-    DEBUG("shiftFlashes: %d", shiftFlashes);
-    DEBUG("sweepSpeed: %d", sweepSpeed);
-    DEBUG("maxSpeed: %d", maxSpeed);
-    DEBUG("maxRPM: %d", maxRPM);
-    DEBUG("maxFreqHall: %d", maxFreqHall);
-    DEBUG("stepRPM: %d", stepRPM);
-    DEBUG("stepSpeed: %d", stepSpeed);
-    DEBUG("testReverse: %d", testReverse);
-    DEBUG("testEML: %d", testEML);
-    DEBUG("testEPC: %d", testEPC);
-    DEBUG("gpsUpdateRateHz: %d", gpsUpdateRateHz);
-    DEBUG("broadcastSpeedEnabled: %d", broadcastSpeedEnabled);
-    DEBUG("broadcastSpeedID: 0x%03X", broadcastSpeedID);
-    DEBUG("broadcastSpeedDLC: %d", broadcastSpeedDLC);
-    DEBUG("broadcastSpeedLowByte: %d", broadcastSpeedLowByte);
-    DEBUG("broadcastSpeedHighByte: %d", broadcastSpeedHighByte);
-    DEBUG("broadcastSpeedLittleEndian: %d", broadcastSpeedLittleEndian);
-    DEBUG("broadcastSpeedScale: %.3f", broadcastSpeedScale);
-    DEBUG("broadcastSpeedOffset: %d", broadcastSpeedOffset);
-    DEBUG("dsgParkMode: %s", dsgParkMode.c_str());
-    DEBUG("autoDiagQuery: %d", autoDiagQuery);
+    DEBUG_EEP("Written EEPROM with data:");
+    DEBUG_EEP("useHall: %d", useHall);
+    DEBUG_EEP("useECU: %d", useECU);
+    DEBUG_EEP("useDSG: %d", useDSG);
+    DEBUG_EEP("useGPS: %d", useGPS);
+    DEBUG_EEP("useABS: %d", useABS);
+    DEBUG_EEP("useTP20: %d", useTP20);
+    DEBUG_EEP("useHallRPM: %d", useHallRPM);
+    DEBUG_EEP("coilType: %d", coilType);
+    DEBUG_EEP("useEMLShiftLight: %d", useEMLShiftLight);
+    DEBUG_EEP("useEPCShiftLight: %d", useEPCShiftLight);
+    DEBUG_EEP("hasNeedleSweep: %d", hasNeedleSweep);
+    DEBUG_EEP("clusterRPMLimit: %d", clusterRPMLimit);
+    DEBUG_EEP("shiftLimit: %d", shiftLimit);
+    DEBUG_EEP("shiftFlashes: %d", shiftFlashes);
+    DEBUG_EEP("sweepSpeed: %d", sweepSpeed);
+    DEBUG_EEP("maxSpeed: %d", maxSpeed);
+    DEBUG_EEP("maxRPM: %d", maxRPM);
+    DEBUG_EEP("maxFreqHall: %d", maxFreqHall);
+    DEBUG_EEP("stepRPM: %d", stepRPM);
+    DEBUG_EEP("stepSpeed: %d", stepSpeed);
+    DEBUG_EEP("testReverse: %d", testReverse);
+    DEBUG_EEP("testEML: %d", testEML);
+    DEBUG_EEP("testEPC: %d", testEPC);
+    DEBUG_EEP("gpsUpdateRateHz: %d", gpsUpdateRateHz);
+    DEBUG_EEP("broadcastSpeedEnabled: %d", broadcastSpeedEnabled);
+    DEBUG_EEP("broadcastSpeedID: 0x%03X", broadcastSpeedID);
+    DEBUG_EEP("broadcastSpeedDLC: %d", broadcastSpeedDLC);
+    DEBUG_EEP("broadcastSpeedLowByte: %d", broadcastSpeedLowByte);
+    DEBUG_EEP("broadcastSpeedHighByte: %d", broadcastSpeedHighByte);
+    DEBUG_EEP("broadcastSpeedLittleEndian: %d", broadcastSpeedLittleEndian);
+    DEBUG_EEP("broadcastSpeedScale: %.3f", broadcastSpeedScale);
+    DEBUG_EEP("broadcastSpeedOffset: %d", broadcastSpeedOffset);
+    DEBUG_EEP("dsgParkMode: %s", dsgParkMode.c_str());
+    DEBUG_EEP("autoDiagQuery: %d", autoDiagQuery);
 #endif
     vTaskDelay(pdMS_TO_TICKS(eepRefresh));
   }

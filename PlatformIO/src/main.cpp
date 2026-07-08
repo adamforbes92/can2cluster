@@ -19,9 +19,10 @@ Forbes-Automotive, 2025
 #include "can2cluster_gps.h"
 #include "can2cluster_io.h"
 #include "can2cluster_savvycan.h"
+#include "power_manager.h"
 
 // for GPS
-SoftwareSerial ss(pinRX_GPS, pinTX_GPS);
+HardwareSerial ss(2); // UART2 for GPS (NEO-6M)
 TinyGPSPlus gps;
 
 // for EEPROM
@@ -44,6 +45,13 @@ void setup() {
   connectWifi();         // enable / start WiFi
   setupUI();             // setup wifi user interface
   setupAnalyzer();       // SavvyCAN/GVRET analyzer (TCP:23 or Serial 1Mbaud)
+
+  // Universal reduced-power module: turns WiFi off 5 min after the last client
+  // disconnects, scales the CPU 240->80 MHz, releases Bluetooth and kills the
+  // onboard LED to cut current draw (and therefore linear-regulator heat).
+  power_config_t pcfg = powerDefaultConfig();
+  pcfg.verbose = serialDebugWifi; // honour the project's WiFi debug gating
+  powerInit(&pcfg);
 }
 
 void loop() {
@@ -57,7 +65,7 @@ void loop() {
     String resp;
     bool ok = setGPSUpdateRate(gpsUpdateRateHz, resp);
     tasksResumeAll();
-    DEBUG("[GPS Auto] Rate apply %s: %s", ok ? "OK" : "FAILED", resp.c_str());
+    DEBUG_GPS("[Auto] Rate apply %s: %s", ok ? "OK" : "FAILED", resp.c_str());
   }
 
   updateButtons();

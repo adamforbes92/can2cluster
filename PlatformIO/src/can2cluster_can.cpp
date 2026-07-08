@@ -19,14 +19,14 @@ void canInit()
   // Install TWAI driver
   if (twai_driver_install(&g_config, &t_config, &f_config) != ESP_OK)
   {
-    DEBUG("TWAI driver install failed");
+    DEBUG_CAN("TWAI driver install failed");
     return;
   }
 
   // Start TWAI driver
   if (twai_start() != ESP_OK)
   {
-    DEBUG("TWAI start failed");
+    DEBUG_CAN("TWAI start failed");
     return;
   }
 
@@ -84,33 +84,33 @@ void canMonitorTask(void *args)
 
     if (alerts & TWAI_ALERT_ABOVE_ERR_WARN)
     {
-      DEBUG("TWAI: error counter above warning level");
+      DEBUG_CAN("TWAI: error counter above warning level");
     }
     if (alerts & TWAI_ALERT_ERR_PASS)
     {
-      DEBUG("TWAI: error-passive state entered");
+      DEBUG_CAN("TWAI: error-passive state entered");
     }
     if (alerts & TWAI_ALERT_RX_QUEUE_FULL)
     {
-      DEBUG("TWAI: RX queue full — frames dropped");
+      DEBUG_CAN("TWAI: RX queue full — frames dropped");
     }
     if (alerts & TWAI_ALERT_BUS_OFF)
     {
-      DEBUG("TWAI: BUS-OFF — initiating recovery");
+      DEBUG_CAN("TWAI: BUS-OFF — initiating recovery");
       hasCAN = false;
       esp_err_t r = twai_initiate_recovery();
       if (r != ESP_OK)
       {
-        DEBUG("TWAI: twai_initiate_recovery() returned %d", (int)r);
+        DEBUG_CAN("TWAI: twai_initiate_recovery() returned %d", (int)r);
       }
     }
     if (alerts & TWAI_ALERT_BUS_RECOVERED)
     {
-      DEBUG("TWAI: bus recovered — restarting driver");
+      DEBUG_CAN("TWAI: bus recovered — restarting driver");
       esp_err_t r = twai_start();
       if (r != ESP_OK)
       {
-        DEBUG("TWAI: twai_start() after recovery returned %d", (int)r);
+        DEBUG_CAN("TWAI: twai_start() after recovery returned %d", (int)r);
       }
     }
   }
@@ -311,6 +311,20 @@ void broadcastGRA(void *args)
     stackbroadcastGRA = uxTaskGetStackHighWaterMark(NULL); // for capturing how much memory the task is using
 #endif
 
+    // Only stream the GRA (paddle) frame when DSG is the active speed source.
+    // The frame must be broadcast continuously (rolling counter + CRC) for the
+    // paddles to work, so it can't be gated on a pending paddle press alone —
+    // a one-shot frame would break counter/checksum continuity. When DSG isn't
+    // selected, nothing goes on the bus and any stale paddle triggers are cleared.
+    if (!useDSG)
+    {
+      padUpTxPending = false;
+      padDownTxPending = false;
+      activeGraCommand = 0x00;
+      vTaskDelay(pdMS_TO_TICKS(broadcastGRARefresh));
+      continue;
+    }
+
     uint8_t graPulseMS = 80; // how long to hold the paddle signal high for (ms)
 
     twai_message_t broadcastGRA{};
@@ -322,7 +336,7 @@ void broadcastGRA(void *args)
     if (padUpTxPending && padDownTxPending)
     {
 #if serialDebugPaddles
-      DEBUG("Paddle up/down triggered together");
+      DEBUG_PADDLES("Paddle up/down triggered together");
 #endif
       padUpTxPending = false;
       padDownTxPending = false;
@@ -330,7 +344,7 @@ void broadcastGRA(void *args)
     else if (padUpTxPending)
     {
 #if serialDebugPaddles
-      DEBUG("Paddle up");
+      DEBUG_PADDLES("Paddle up");
 #endif
       activeGraCommand = 0x02;
       activeGraCommandUntilMs = millis() + graPulseMS;
@@ -339,7 +353,7 @@ void broadcastGRA(void *args)
     else if (padDownTxPending)
     {
 #if serialDebugPaddles
-      DEBUG("Paddle down");
+      DEBUG_PADDLES("Paddle down");
 #endif
       activeGraCommand = 0x01;
       activeGraCommandUntilMs = millis() + graPulseMS;

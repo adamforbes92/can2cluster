@@ -26,4 +26,9 @@ V2.01 - added GPS update rate configuration
 
 V3.00 - revised GPS to match SpeedPulserPro and added OTA with filesystem AND firmware
 V3.01 - added cluster in MPH and SavvyCAN implementation for CAN analysis (TCP:23 or Serial 1Mbaud)
+V3.02 - changed rpm/speed update rate to ensure GPS has a chance to update and revised ALL Serial bug updates
+
+V3.10 - added power management - turning WiFi off after 1 minute of inactivity.  Reboot to enable.  Cuts power from 300mA idle to 170mA and runs cooler.
+    * board to be revised with a buck converter but space/redesign etc.
+
 */

@@ -45,13 +45,48 @@ static SemaphoreHandle_t getGPSSerialMutex()
   return gpsSerialMutex;
 }
 
+// Forward declarations — initGPS() uses these helpers before their definitions.
+static bool applyGPSBaudRate(unsigned long baud, String &responseMsg);
+static bool gpsProbeBaud(unsigned long baud);
+
+// Startup: detect the baud the GPS module is actually running at, then lock the
+// hardware UART onto it. The u-blox keeps its last-configured baud until it
+// fully loses power, so after an ESP-only reset it may still be at the high-rate
+// baud (38400). Unlike the old bit-banged SoftwareSerial (which passed bad bytes
+// through), the hardware UART silently discards framing-error bytes, so opening
+// at the wrong baud yields almost nothing. Probe the known bauds and lock on.
 unsigned long initGPS()
 {
-  DEBUG_GPS("[GPS Init] Starting GPS serial at default baud: %lu", GPS_DEFAULT_BAUD);
-  ss.end();
-  delay(50);
-  ss.begin(GPS_DEFAULT_BAUD);
-  charsProcessedPrevious = 0;
+  DEBUG_GPS("[GPS Init] Detecting GPS baud (default %lu, high-rate %lu)...", GPS_DEFAULT_BAUD, GPS_HIGH_RATE_BAUD);
+
+  ss.setRxBufferSize(1024); // Generous RX buffer for 38400-baud bursts at 5 Hz.
+
+  const unsigned long candidateBauds[] = {GPS_DEFAULT_BAUD, GPS_HIGH_RATE_BAUD};
+  unsigned long detectedBaud = GPS_DEFAULT_BAUD;
+  bool baudDetected = false;
+  for (size_t i = 0; i < sizeof(candidateBauds) / sizeof(candidateBauds[0]); ++i)
+  {
+    if (gpsProbeBaud(candidateBauds[i]))
+    {
+      detectedBaud = candidateBauds[i];
+      baudDetected = true;
+      DEBUG_GPS("[GPS Init] Detected GPS at %lu baud.", detectedBaud);
+      break;
+    }
+  }
+
+  if (!baudDetected)
+  {
+    // No valid NMEA at any known baud (e.g. no module / no antenna yet). Fall
+    // back to the default baud; the auto-rate logic will retry after lock.
+    detectedBaud = GPS_DEFAULT_BAUD;
+    ss.end();
+    delay(20);
+    ss.begin(detectedBaud, SERIAL_8N1, pinRX_GPS, pinTX_GPS);
+    DEBUG_GPS("[GPS Init] No NMEA detected; defaulting to %lu baud.", detectedBaud);
+  }
+
+  charsProcessedPrevious = gps.charsProcessed(); // snapshot — TinyGPS counter never resets
   passedChecksumPrevious = gps.passedChecksum();
   failedChecksumPrevious = gps.failedChecksum();
   gpsUpdateCount = 0;
@@ -59,9 +94,45 @@ unsigned long initGPS()
   gpsUpdateFrequency = 0.0f;
   gpsSatStableStartMs = 0;
   gpsRateApplied = false;
-  gpsCurrentSerialBaud = GPS_DEFAULT_BAUD;
+  gpsCurrentSerialBaud = detectedBaud;
   lastGPSData = millis();
-  return GPS_DEFAULT_BAUD;
+  return detectedBaud;
+}
+
+// Probe a candidate baud: open the UART, feed received bytes to TinyGPS for a
+// short window, and report whether any checksum-passing NMEA sentence arrives.
+// u-blox emits NMEA continuously even without a fix, so this works before lock.
+// Called only from initGPS() during setup(), so blocking delays here are safe
+// (no FreeRTOS tasks are running yet).
+static bool gpsProbeBaud(unsigned long baud)
+{
+  ss.end();
+  delay(20);
+  ss.begin(baud, SERIAL_8N1, pinRX_GPS, pinTX_GPS);
+
+  // Discard any partial/garbage bytes already sitting in the FIFO.
+  delay(20);
+  while (ss.available() > 0)
+  {
+    ss.read();
+  }
+
+  const unsigned long probeWindowMs = 1500;
+  const unsigned long okBefore = gps.passedChecksum();
+  const unsigned long startMs = millis();
+  while (millis() - startMs < probeWindowMs)
+  {
+    while (ss.available() > 0)
+    {
+      gps.encode(ss.read());
+    }
+    if (gps.passedChecksum() > okBefore)
+    {
+      return true;
+    }
+    delay(5);
+  }
+  return false;
 }
 
 float getGPSUpdateFrequency()
@@ -118,7 +189,10 @@ static bool applyGPSBaudRate(unsigned long baud, String &responseMsg)
 
   DEBUG_GPS("[GPS Baud] Sending PUBX baud change command for %lu baud.", baud);
   sendPUBXCommand(baudCommand);
-  ss.flush();
+  // Do NOT call ss.flush() here. On the ESP32 hardware UART, flush() blocks until
+  // the TX FIFO drains and was observed to hang indefinitely on UART2, freezing
+  // the calling task so serial and WiFi stop updating. The short PUBX command
+  // (<30 bytes) is fully sent well within the delay below.
   delay(1000); // Allow GPS extra time to process PUBX and switch baud internally.
 
   while (ss.available() > 0)
@@ -128,8 +202,8 @@ static bool applyGPSBaudRate(unsigned long baud, String &responseMsg)
 
   ss.end();
   delay(GPS_COMMAND_SETTLE_MS);
-  ss.begin(baud);
-  delay(GPS_COMMAND_SETTLE_MS); // Let SoftwareSerial ISR settle before any write.
+  ss.begin(baud, SERIAL_8N1, pinRX_GPS, pinTX_GPS);
+  delay(GPS_COMMAND_SETTLE_MS); // Let the UART settle before any write.
 
   DEBUG_GPS("[GPS Baud] Stage complete. Local serial restarted at %lu baud.", baud);
 
@@ -206,7 +280,7 @@ bool setGPSUpdateRate(uint8_t rateHz, String &responseMsg)
       {
         ss.write(UBX_1HZ[i]);
       }
-      ss.flush();
+      // No ss.flush(): HardwareSerial flush() can hang on UART2; the delay covers TX.
       delay(GPS_COMMAND_DELAY_MS);
     }
 
@@ -225,7 +299,7 @@ bool setGPSUpdateRate(uint8_t rateHz, String &responseMsg)
     {
       ss.write(cmd[i]);
     }
-    ss.flush();
+    // No ss.flush(): HardwareSerial flush() can hang on UART2; the delay covers TX.
     delay(GPS_COMMAND_DELAY_MS);
   }
   else
@@ -237,7 +311,7 @@ bool setGPSUpdateRate(uint8_t rateHz, String &responseMsg)
     {
       ss.write(cmd[i]);
     }
-    ss.flush();
+    // No ss.flush(): HardwareSerial flush() can hang on UART2; the delay covers TX.
     delay(GPS_COMMAND_DELAY_MS);
     // Same baud: applyGPSBaudRate sends a no-op PUBX, restarts SS, resets counters.
     applyGPSBaudRate(targetBaud, baudResponse);

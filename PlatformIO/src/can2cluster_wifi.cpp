@@ -1,6 +1,7 @@
 #include "can2cluster_wifi.h"
 #include "can2cluster_savvycan.h"
 #include "can2cluster_gps.h"
+#include "power_manager.h"
 #include <ArduinoJson.h>
 #include <LittleFS.h>
 #include <Update.h>
@@ -640,11 +641,40 @@ void connectWifi()
 
 void disconnectWifi()
 {
-  DEBUG("Number of connections: %d", WiFi.softAPgetStationNum());
+  DEBUG_WIFI("Number of connections: %d", WiFi.softAPgetStationNum());
   if (WiFi.softAPgetStationNum() == 0)
   {
-    DEBUG("No connections");
+    DEBUG_WIFI("No connections");
     WiFi.disconnect(true, false);
     WiFi.mode(WIFI_OFF);
   }
+}
+
+// ----------------------------------------------------------------------------
+// power_manager integration (universal reduced-power module)
+// ----------------------------------------------------------------------------
+// These override the weak hooks in power_manager. The device stays fully awake
+// while ANY client is associated to the AP (web UI or SavvyCAN/TCP). Once the
+// last client leaves, the manager's idle timer runs and then turns the radio
+// off + drops the CPU clock. Power-cycle (ignition off/on) brings WiFi back.
+bool powerIsBusy()
+{
+  return WiFi.softAPgetStationNum() > 0;
+}
+
+// ACTIVE -> REDUCED: close the web server cleanly before the radio drops. The
+// SavvyCAN analyzer task self-heals (it watches for WIFI_OFF and closes its
+// client), so it needs no explicit teardown here.
+void powerOnEnterReduced()
+{
+  server.end();
+}
+
+// REDUCED -> ACTIVE: bring the AP and web server back. Routes are already
+// registered and LittleFS already mounted from setupUI(), so we only restart
+// the radio + listener (no need to re-run setupWebRoutes()).
+void powerOnExitReduced()
+{
+  connectWifi();
+  server.begin();
 }

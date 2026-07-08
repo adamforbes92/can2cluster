@@ -81,44 +81,32 @@ void basicInit()
 // basic initialisation - setup pins for IO & setup CAN for receiving...
 
 // if ANY Serial request is made, begin Serial
-#if serialDebug || serialDebugWifi || serialDebugEEP || serialDebugGPS || ChassisCANDebug || serialDebugPaddles || serialDebugIO
+#if serialDebug || serialDebugWifi || serialDebugEEP || serialDebugGPS || ChassisCANDebug || serialDebugPaddles || serialDebugIO || serialDebugDSG || serialDebugCAN
   Serial.begin(baudSerial);
   delay(500);
-  DEBUG("CAN-BUS to Cluster Initialising...");
 #endif
+  DEBUG("[Init] CAN-BUS to Cluster Initialising...");
 
-#if serialDebug
-  DEBUG("Reading EEPROM...");
-#endif
+  DEBUG("[Init] Reading EEPROM...");
   readEEP(); // read EEPROM
-#if serialDebug
-  DEBUG("Read EEPROM!");
-#endif
+  DEBUG("[Init] Read EEPROM!");
 
   initGPS(); // initialise GPS serial at default baud and reset state
 #if serialDebugGPS
-  // DEBUG(TinyGPSPlus::libraryVersion());
-  DEBUG("Sats HDOP  Latitude   Longitude   Fix  Date       Time     Date Alt    Course Speed Card  Distance Course Card  Chars Sentences Checksum");
-  DEBUG("           (deg)      (deg)       Age                      Age  (m)    --- from GPS ----  ---- to London  ----  RX    RX        Fail");
-  DEBUG("----------------------------------------------------------------------------------------------------------------------------------------");
+  // DEBUG_GPS(TinyGPSPlus::libraryVersion());
+  DEBUG_GPS("Sats HDOP  Latitude   Longitude   Fix  Date       Time     Date Alt    Course Speed Card  Distance Course Card  Chars Sentences Checksum");
+  DEBUG_GPS("           (deg)      (deg)       Age                      Age  (m)    --- from GPS ----  ---- to London  ----  RX    RX        Fail");
+  DEBUG_GPS("----------------------------------------------------------------------------------------------------------------------------------------");
 #endif
 
-#if serialDebug
-  DEBUG("Setting up IO (pins & buttons)...");
-#endif
+  DEBUG("[Init] Setting up IO (pins & buttons)...");
   setupButtons(); // setup buttons for interrupt first (installs GPIO ISR service)
   setupPins();    // begin IO
-#if serialDebug
-  DEBUG("Setup IO Complete!");
-#endif
+  DEBUG("[Init] Setup IO Complete!");
 
-#if serialDebug
-  DEBUG("CAN Chip Initialising...");
-#endif
+  DEBUG("[Init] CAN Chip Initialising...");
   canInit(); // initialise the CAN chip
-#if serialDebug
-  DEBUG("CAN Chip Initialised!");
-#endif
+  DEBUG("[Init] CAN Chip Initialised!");
 }
 
 void setupPins()

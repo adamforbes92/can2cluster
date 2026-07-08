@@ -8,15 +8,14 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 
-#include <TinyGPSPlus.h>    // included for GPS
-#include <SoftwareSerial.h> // included for GPS
-#include <driver/twai.h>    // TWAI (CAN) for ESP32
+#include <TinyGPSPlus.h> // included for GPS
+#include <driver/twai.h>  // TWAI (CAN) for ESP32
 #include <Preferences.h>    // for eeprom/remember settings
 #include <WiFi.h>           // included for WiFi pages
 #include <ESPmDNS.h>        // included for WiFi pages
 #include <OneButton.h>
 
-#define FW_VERSION "3.01"
+#define FW_VERSION "3.10"
 
 /* Defines */
 // Debug statements
@@ -28,6 +27,7 @@
 #define serialDebugPaddles 0 // for Paddle Serial feedback
 #define serialDebugDSG 0     // for DSG Serial feedback
 #define serialDebugIO 0      // for General IO Serial feedback
+#define serialDebugCAN 0     // for CAN/TWAI driver Serial feedback
 #define detailedDebugStack 0 // for showing stack usage of each task (in showState() task)
 
 #define serialMonitorRefresh 1000 // serial monitor feedback in ms
@@ -36,10 +36,10 @@
 #define broadcastSpeedRefresh 20  // speed sending via. CAN in ms
 #define broadcastGRARefresh 20    // paddle (GRA) sending via. CAN in ms
 #define gearPause 20              // vTaskDelay (in _dsg.ino) for DSG refreshes
-#define rpmPause 5                // vTaskDelay (in _io.ino) for RPM & Speed refreshes
+#define rpmPause 50               // vTaskDelay for the RPM & Speed output tasks (50 ms = 20 Hz). The output frequency only changes on a real value change, so a faster loop just burns CPU and bogs down the other core-1 tasks.
 
 // global object declarations
-extern SoftwareSerial ss;
+extern HardwareSerial ss; // UART2 for GPS (NEO-6M)
 extern TinyGPSPlus gps;
 extern Preferences pref;
 extern OneButton btnPadUp;
@@ -105,7 +105,10 @@ extern uint16_t stepSpeed;
 #define LEVER_TIPTRONIC_UP 0xA   // tiptronic up
 #define LEVER_TIPTRONIC_DOWN 0xB // tiptronic down
 
-#ifdef serialDebug
+// General / system debug (master flag). Use #if (not #ifdef): the flags are
+// #define'd to 0/1, so #ifdef would always be true and DEBUG would print even
+// when serialDebug is 0. Call sites must carry their own [Tag] prefix.
+#if serialDebug
 #define DEBUG(x, ...) Serial.printf(x "\n", ##__VA_ARGS__)
 #define DEBUG_(x, ...) Serial.printf(x, ##__VA_ARGS__)
 #else
@@ -168,6 +171,22 @@ extern uint16_t stepSpeed;
 #else
 #define DEBUG_CHASSIS_CAN(x, ...)
 #define DEBUG_CHASSIS_CAN_(x, ...)
+#endif
+
+#if serialDebugCAN
+#define DEBUG_CAN(x, ...) Serial.printf("[CAN] " x "\n", ##__VA_ARGS__)
+#define DEBUG_CAN_(x, ...) Serial.printf("[CAN] " x, ##__VA_ARGS__)
+#else
+#define DEBUG_CAN(x, ...)
+#define DEBUG_CAN_(x, ...)
+#endif
+
+#if detailedDebugStack
+#define DEBUG_STACK(x, ...) Serial.printf("[Stack] " x "\n", ##__VA_ARGS__)
+#define DEBUG_STACK_(x, ...) Serial.printf("[Stack] " x, ##__VA_ARGS__)
+#else
+#define DEBUG_STACK(x, ...)
+#define DEBUG_STACK_(x, ...)
 #endif
 
 // UDS debug macro (always on if any debug is enabled, since UDS is diagnostic)

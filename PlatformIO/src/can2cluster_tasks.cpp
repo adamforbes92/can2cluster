@@ -22,8 +22,9 @@ void setupTasks()
   xTaskCreatePinnedToCore(diagTestTask,   "diagTestTask",   3000, NULL,  8, NULL,    1);
 }
 
-// Suspend all tasks that could interfere with SoftwareSerial timing during
-// a GPS baud/rate change. Called from loop() before setGPSUpdateRate().
+// Suspend all tasks that could contend for the GPS UART (or be starved by the
+// blocking delays in setGPSUpdateRate) during a GPS baud/rate change.
+// Called from loop() before setGPSUpdateRate().
 void tasksSuspendAll()
 {
   if (gpsTaskHandle != NULL)
@@ -57,46 +58,46 @@ void showState(void *arg)
 #endif
 
 #if detailedDebugStack
-    DEBUG("Stack Sizes:");
-    DEBUG("    stackShowState: %d", stackShowState);       // incrememting value for checking the response to vars...
-    DEBUG("    stackUpdateLabels: %d", stackUpdateLabels); // incrememting value for checking the response to vars...
+    DEBUG_STACK("Stack Sizes:");
+    DEBUG_STACK("    stackShowState: %d", stackShowState);       // incrememting value for checking the response to vars...
+    DEBUG_STACK("    stackUpdateLabels: %d", stackUpdateLabels); // incrememting value for checking the response to vars...
 
-    DEBUG("    stackWriteEEP: %d", stackWriteEEP); // incrememting value for checking the response to vars...
+    DEBUG_STACK("    stackWriteEEP: %d", stackWriteEEP); // incrememting value for checking the response to vars...
 
-    DEBUG("    stackbroadcastGRA: %d", stackbroadcastGRA);     // incrememting value for checking the response to vars...
-    DEBUG("    stackbroadcastSpeed: %d", stackbroadcastSpeed); // incrememting value for checking the response to vars...
-    DEBUG("    stackparseGPS: %d", stackparseGPS);             // incrememting value for checking the response to vars...
-    DEBUG("    stackparseDSG: %d", stackparseDSG);             // incrememting value for checking the response to vars...
+    DEBUG_STACK("    stackbroadcastGRA: %d", stackbroadcastGRA);     // incrememting value for checking the response to vars...
+    DEBUG_STACK("    stackbroadcastSpeed: %d", stackbroadcastSpeed); // incrememting value for checking the response to vars...
+    DEBUG_STACK("    stackparseGPS: %d", stackparseGPS);             // incrememting value for checking the response to vars...
+    DEBUG_STACK("    stackparseDSG: %d", stackparseDSG);             // incrememting value for checking the response to vars...
 
-    DEBUG("    stackupdateSpeed: %d", stackupdateSpeed); // incrememting value for checking the response to vars...
-    DEBUG("    stackupdateRPM: %d", stackupdateRPM);     // incrememting value for checking the response to vars...
-    DEBUG("    stackshiftLight: %d", stackshiftLight);   // incrememting value for checking the response to vars...
+    DEBUG_STACK("    stackupdateSpeed: %d", stackupdateSpeed); // incrememting value for checking the response to vars...
+    DEBUG_STACK("    stackupdateRPM: %d", stackupdateRPM);     // incrememting value for checking the response to vars...
+    DEBUG_STACK("    stackshiftLight: %d", stackshiftLight);   // incrememting value for checking the response to vars...
 
-    DEBUG("    stackcheckError: %d", stackcheckError); // incrememting value for checking the response to vars...
+    DEBUG_STACK("    stackcheckError: %d", stackcheckError); // incrememting value for checking the response to vars...
 #endif
 
 #if ChassisCANDebug
-    DEBUG("From CAN:");
-    DEBUG("  vehicleRPM: %d", vehicleRPM);
-    DEBUG("  vehicleSpeed: %d", vehicleSpeed);
-    DEBUG("  vehicleReverse: %d", vehicleReverse);
-    DEBUG("  vehicleEML: %d", vehicleEML);
-    DEBUG("  vehicleEPC: %d", vehicleEPC);
+    DEBUG_CHASSIS_CAN("From CAN:");
+    DEBUG_CHASSIS_CAN("  vehicleRPM: %d", vehicleRPM);
+    DEBUG_CHASSIS_CAN("  vehicleSpeed: %d", vehicleSpeed);
+    DEBUG_CHASSIS_CAN("  vehicleReverse: %d", vehicleReverse);
+    DEBUG_CHASSIS_CAN("  vehicleEML: %d", vehicleEML);
+    DEBUG_CHASSIS_CAN("  vehicleEPC: %d", vehicleEPC);
 #endif
 
 #if serialDebugGPS
-    DEBUG("From GPS:");
-    DEBUG("  Satellites: %d", gps.satellites.value());
-    DEBUG("  gpsSpeed: %d", gpsSpeed);
+    DEBUG_GPS("From GPS:");
+    DEBUG_GPS("  Satellites: %d", gps.satellites.value());
+    DEBUG_GPS("  gpsSpeed: %d", gpsSpeed);
 #endif
 
 #if serialDebugIO
-    DEBUG("Speeds:");
-    DEBUG("  hallSpeed: %d", dutyCycleIncoming);
-    DEBUG("  ecuSpeed: %d", calcSpeed);
-    DEBUG("  dsgSpeed: %d", dsgSpeed);
-    DEBUG("  gpsSpeed: %d", gpsSpeed);
-    DEBUG("  absSpeed: %d", absSpeed);
+    DEBUG_IO("Speeds:");
+    DEBUG_IO("  hallSpeed: %d", dutyCycleIncoming);
+    DEBUG_IO("  ecuSpeed: %d", calcSpeed);
+    DEBUG_IO("  dsgSpeed: %d", dsgSpeed);
+    DEBUG_IO("  gpsSpeed: %d", gpsSpeed);
+    DEBUG_IO("  absSpeed: %d", absSpeed);
 #endif
 
     vTaskDelay(pdMS_TO_TICKS(serialMonitorRefresh));
@@ -175,7 +176,7 @@ void updateSpeed(void *args)
       frequencySpeed = map(vehicleSpeed, 0, maxSpeed, 0, maxSpeed);
       setFrequencySpeed(frequencySpeed); // minimum speed may command 0 and setFreq. will cause crash, so +1 to error 'catch'  }
     }
-    vTaskDelay(pdMS_TO_TICKS(1));
+    vTaskDelay(pdMS_TO_TICKS(rpmPause));
   }
 }
 
@@ -217,7 +218,7 @@ void updateRPM(void *args)
       frequencyRPM = map(vehicleRPM, 0, clusterRPMLimit, 0, maxRPM);
       setFrequencyRPM(frequencyRPM); // minimum speed may command 0 and setFreq. will cause crash, so +1 to error 'catch'
     }
-    vTaskDelay(pdMS_TO_TICKS(1));
+    vTaskDelay(pdMS_TO_TICKS(rpmPause));
   }
 }
 
@@ -230,7 +231,7 @@ void outputControlTask(void *args)
       blinkLED(shiftLightRate, shiftFlashes, useEPCShiftLight, useEMLShiftLight, 0, 0);
       tempShiftLight = false;
 #if serialDebugIO
-      DEBUG("tempShiftLight");
+      DEBUG_IO("tempShiftLight");
 #endif
     }
 
