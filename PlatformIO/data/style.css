@@ -664,32 +664,348 @@ header h1 {
     font-weight: 600;
 }
 
-/* OTA Styles */
-.ota-progress {
-    display: none;
-    width: 100%;
-    height: 8px;
-    margin-top: 0.75rem;
-    appearance: none;
-    -webkit-appearance: none;
-    border: none;
-    border-radius: 4px;
+/* ===== OTA UPDATE (manager) ===== */
+.centered-card {
+    max-width: 640px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.info-box {
+    padding: 1rem;
     background: var(--surface-light);
+    border-left: 4px solid var(--primary);
+    border-radius: 4px;
+}
+
+.info-box p {
+    margin: 0.25rem 0;
+    color: var(--text-dim);
+}
+
+.info-box strong {
+    color: var(--text);
+}
+
+.ota-upload-area {
+    border: 2px dashed var(--border);
+    border-radius: 8px;
+    padding: 2rem 1rem;
+    margin-top: 1rem;
+    text-align: center;
+    cursor: pointer;
+    color: var(--text-dim);
+    transition: border-color 0.2s, background 0.2s, color 0.2s;
+    user-select: none;
+}
+
+.ota-upload-area:hover,
+.ota-upload-area.drag-over {
+    border-color: var(--primary);
+    background: rgba(0, 217, 255, 0.05);
+    color: var(--text);
+}
+
+.ota-upload-area.file-selected {
+    border-color: var(--success);
+    color: var(--success);
+}
+
+.ota-upload-area p {
+    margin: 0.5rem 0;
+}
+
+.ota-file-name {
+    font-size: 0.9rem;
+    color: var(--text);
+}
+
+.ota-progress {
+    margin-top: 1rem;
+    background: var(--surface-light);
+    border-radius: 6px;
     overflow: hidden;
 }
 
-.ota-progress::-webkit-progress-bar {
+.ota-progress-bar {
+    height: 12px;
+    background: var(--primary);
+    border-radius: 6px;
+    width: 0%;
+    transition: width 0.2s;
+}
+
+.ota-progress-label {
+    text-align: center;
+    margin-top: 0.4rem;
+    font-size: 0.9rem;
+    color: var(--text-dim);
+}
+
+.button-group {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.button-group .btn-primary {
+    flex: 1;
+}
+
+.ota-status {
+    margin-top: 0.75rem;
+    text-align: center;
+    font-size: 0.95rem;
+    min-height: 1.5rem;
+}
+
+.ota-status.success {
+    color: var(--success);
+}
+
+.ota-status.error {
+    color: var(--danger);
+}
+
+/* ---- Collapsible cards ---- */
+.card.collapsible > h2 {
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1rem;
+}
+
+.card.collapsible > h2::after {
+    content: "\25BE"; /* down chevron */
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    transition: transform 0.2s ease;
+}
+
+.card.collapsible.collapsed > h2 {
+    margin-bottom: 0;
+}
+
+.card.collapsible.collapsed > h2::after {
+    transform: rotate(-90deg);
+}
+
+.card.collapsible.collapsed > *:not(h2) {
+    display: none;
+}
+
+/* ---- Calibration builder ---- */
+.cal-duty-readout {
+    text-align: center;
+    padding: 1rem;
     background: var(--surface-light);
-    border-radius: 4px;
+    border-radius: 8px;
+    margin: 1rem 0;
 }
 
-.ota-progress::-webkit-progress-value {
-    background: var(--primary);
-    border-radius: 4px;
-    transition: width 0.2s ease;
+.cal-duty-value {
+    font-size: 2.75rem;
+    font-weight: 800;
+    color: var(--primary);
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
 }
 
-.ota-progress::-moz-progress-bar {
+.cal-duty-value small {
+    font-size: 1.1rem;
+    color: var(--text-dim);
+    font-weight: 600;
+}
+
+.cal-duty-sub {
+    color: var(--text-dim);
+    font-size: 0.95rem;
+    margin-top: 0.4rem;
+}
+
+.stepper-row {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 0.4rem;
+}
+
+.stepper-btn {
+    padding: 1.1rem 0.25rem;
+    background: var(--surface-light);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 1.05rem;
+    font-weight: 700;
+    cursor: pointer;
+    user-select: none;
+    touch-action: manipulation;
+    transition: background 0.12s, border-color 0.12s;
+}
+
+.stepper-btn:hover {
+    border-color: var(--primary);
+}
+
+.stepper-btn:active {
     background: var(--primary);
-    border-radius: 4px;
+    color: var(--background);
+    border-color: var(--primary);
+}
+
+.stepper-btn.coarse {
+    background: #2a313a;
+}
+
+.stepper-btn.fine {
+    border-color: var(--primary);
+}
+
+.chip-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(56px, 1fr));
+    gap: 0.4rem;
+}
+
+.chip {
+    padding: 0.6rem 0.25rem;
+    background: var(--surface-light);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.12s;
+}
+
+.chip:hover {
+    border-color: var(--primary);
+}
+
+.chip.active {
+    background: var(--primary);
+    color: var(--background);
+    border-color: var(--primary);
+}
+
+.cal-subhead {
+    font-size: 1rem;
+    color: var(--text-dim);
+    margin: 1.25rem 0 0.5rem;
+}
+
+.cal-points {
+    background: var(--surface-light);
+    border-radius: 8px;
+    padding: 0.5rem 0.75rem;
+}
+
+.cal-point-head,
+.cal-point-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 2.5rem;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0;
+}
+
+.cal-point-head {
+    color: var(--text-dim);
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid var(--border);
+}
+
+.cal-point-row {
+    border-bottom: 1px solid var(--border);
+    font-weight: 600;
+}
+
+.cal-point-row:last-child {
+    border-bottom: none;
+}
+
+.cal-point-row span:first-child {
+    color: var(--secondary);
+}
+
+.cal-point-row span:nth-child(2) {
+    color: var(--primary);
+}
+
+.cal-del {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--danger);
+    border-radius: 6px;
+    padding: 0.3rem;
+    cursor: pointer;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.cal-del:hover {
+    background: var(--danger);
+    color: #fff;
+    border-color: var(--danger);
+}
+
+.cal-action-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.6rem;
+    margin-top: 1rem;
+}
+
+/* ---- Calibration curve ---- */
+.cal-graph-wrap {
+    width: 100%;
+    background: var(--surface-light);
+    border-radius: 8px;
+    padding: 0.5rem;
+}
+
+.cal-graph {
+    width: 100%;
+    height: auto;
+    display: block;
+}
+
+.cal-graph-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-top: 0.75rem;
+    font-size: 0.85rem;
+    color: var(--text-dim);
+}
+
+.cal-graph-legend span {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.legend-swatch {
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    display: inline-block;
+}
+
+.legend-curve {
+    background: var(--primary);
+}
+
+.legend-point {
+    background: var(--secondary);
+    border-radius: 50%;
+}
+
+.legend-live {
+    background: var(--success);
+    border-radius: 50%;
 }

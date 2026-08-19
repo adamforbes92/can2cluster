@@ -63,6 +63,13 @@ void readEEP() {
     pref.putFloat("amSpeedScale", aftermarketSpeedScale);
     pref.putShort("amSpeedOffset", aftermarketSpeedOffset);
 
+    pref.putUChar("coolOut", coolantOutput);
+    pref.putUInt("coolFreq", coolantPwmFreq);
+    pref.putUChar("coolWarn", coolantWarnTemp);
+    pref.putUChar("coolCnt", coolantCalCount);
+    pref.putBytes("coolTemp", coolantCalTemp, sizeof(coolantCalTemp));
+    pref.putBytes("coolDuty", coolantCalDuty, sizeof(coolantCalDuty));
+
   } else {
 
     useHall = pref.getBool("useHall", true);
@@ -128,6 +135,14 @@ void readEEP() {
     aftermarketSpeedLittleEndian = pref.getBool("amSpeedLE", true);
     aftermarketSpeedScale = pref.getFloat("amSpeedScale", 1.0f);
     aftermarketSpeedOffset = pref.getShort("amSpeedOffset", 0);
+
+    coolantOutput = pref.getUChar("coolOut", 0);
+    coolantPwmFreq = pref.getUInt("coolFreq", 10000);
+    coolantWarnTemp = pref.getUChar("coolWarn", 120);
+    coolantCalCount = pref.getUChar("coolCnt", 0);
+    if (coolantCalCount > COOLANT_CAL_MAX) coolantCalCount = 0;
+    pref.getBytes("coolTemp", coolantCalTemp, sizeof(coolantCalTemp));
+    pref.getBytes("coolDuty", coolantCalDuty, sizeof(coolantCalDuty));
   }
 #if serialDebugEEP
   DEBUG_EEP("EEPROM initialised with...");
@@ -230,6 +245,13 @@ void writeEEP(void *args) {
     pref.putBool("amSpeedLE", aftermarketSpeedLittleEndian);
     pref.putFloat("amSpeedScale", aftermarketSpeedScale);
     pref.putShort("amSpeedOffset", aftermarketSpeedOffset);
+
+    pref.putUChar("coolOut", coolantOutput);
+    pref.putUInt("coolFreq", coolantPwmFreq);
+    pref.putUChar("coolWarn", coolantWarnTemp);
+    pref.putUChar("coolCnt", coolantCalCount);
+    pref.putBytes("coolTemp", coolantCalTemp, sizeof(coolantCalTemp));
+    pref.putBytes("coolDuty", coolantCalDuty, sizeof(coolantCalDuty));
 
 #if serialDebugEEP
     DEBUG_EEP("Written EEPROM with data:");

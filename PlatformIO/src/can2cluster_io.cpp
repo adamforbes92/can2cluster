@@ -22,6 +22,16 @@ constexpr ledc_timer_t LEDC_RPM_TIMER = LEDC_TIMER_1;
 constexpr ledc_channel_t LEDC_RPM_COIL_CHANNEL = LEDC_CHANNEL_1;
 constexpr ledc_channel_t LEDC_RPM_PIN_CHANNEL = LEDC_CHANNEL_2;
 
+// Coolant gauge shares the EML/EPC ULN2003 output; its own timer/channel so it
+// can run a fixed PWM frequency while the RPM/Speed timers do their own thing.
+constexpr ledc_timer_t LEDC_COOLANT_TIMER = LEDC_TIMER_2;
+constexpr ledc_channel_t LEDC_COOLANT_CHANNEL = LEDC_CHANNEL_3;
+// Run the coolant PWM on the ESP32's independent high-speed LEDC block so
+// retuning it never disturbs the shared low-speed clock the RPM/Speed timers
+// use (changing one low-speed timer's clock source affects them all).
+constexpr ledc_mode_t LEDC_COOLANT_MODE = LEDC_HIGH_SPEED_MODE;
+constexpr uint32_t LEDC_COOLANT_MAX_DUTY = 1023; // 10-bit resolution
+
 constexpr uint32_t LEDC_DUTY_OFF = 0;
 constexpr uint32_t LEDC_DUTY_50 = 512; // 50% duty with 10-bit resolution (1024 levels)
 constexpr uint32_t LEDC_MIN_FREQ_HZ = 2;
@@ -314,9 +324,12 @@ void updateBlinkLED(void)
     // Check if we're done
     if (blinkState.currentFlash >= blinkState.flashCount)
     {
-      // Sequence complete - turn off all outputs
-      digitalWrite(pinEPC, LOW);
-      digitalWrite(pinEML, LOW);
+      // Sequence complete - turn off all outputs (but never the pin the
+      // coolant gauge owns, or we'd punch a hole in its PWM).
+      if (coolantOutput != 2)
+        digitalWrite(pinEPC, LOW);
+      if (coolantOutput != 1)
+        digitalWrite(pinEML, LOW);
       digitalWrite(pinRPM, LOW);
       digitalWrite(pinSpeed, LOW);
       blinkState.active = false;
@@ -446,6 +459,134 @@ void setFrequencySpeed(long frequencyHz)
   {
     ledc_set_duty(LEDC_MODE, LEDC_SPEED_CHANNEL, LEDC_DUTY_OFF);
     ledc_update_duty(LEDC_MODE, LEDC_SPEED_CHANNEL);
+  }
+}
+
+// Interpolate a PWM duty (0-1023) for a coolant temperature from the
+// calibration table. Points are stored sorted ascending by temperature; the
+// curve is clamped (held flat) beyond the first/last captured point.
+uint16_t coolantDutyForTemp(int16_t tempC)
+{
+  if (coolantCalCount == 0)
+    return 0;
+  if (coolantCalCount == 1)
+    return coolantCalDuty[0];
+
+  if (tempC <= coolantCalTemp[0])
+    return coolantCalDuty[0];
+  if (tempC >= coolantCalTemp[coolantCalCount - 1])
+    return coolantCalDuty[coolantCalCount - 1];
+
+  for (uint8_t i = 1; i < coolantCalCount; i++)
+  {
+    if (tempC <= coolantCalTemp[i])
+    {
+      int32_t t0 = coolantCalTemp[i - 1];
+      int32_t t1 = coolantCalTemp[i];
+      int32_t d0 = coolantCalDuty[i - 1];
+      int32_t d1 = coolantCalDuty[i];
+      int32_t span = t1 - t0;
+      if (span == 0)
+        return static_cast<uint16_t>(d1);
+      return static_cast<uint16_t>(d0 + (d1 - d0) * (tempC - t0) / span);
+    }
+  }
+  return coolantCalDuty[coolantCalCount - 1];
+}
+
+// Attach the coolant LEDC channel to the chosen EML/EPC pin, or detach and
+// return the pin to plain GPIO output so outputControlTask can drive it as a
+// normal warning light again. Only reconfigures when the target pin changes.
+void applyCoolantOutput()
+{
+  static int coolantActivePin = -1;
+
+  int desired = -1;
+  if (coolantOutput == 1)
+    desired = pinEML;
+  else if (coolantOutput == 2)
+    desired = pinEPC;
+
+  // A diagnostic test on the coolant's pin is a hard override: drop the LEDC
+  // channel so outputControlTask can drive the pin directly (direct short).
+  if ((desired == pinEML && testEML) || (desired == pinEPC && testEPC))
+    desired = -1;
+
+  if (desired == coolantActivePin)
+    return;
+
+  // Detach from the previous pin and restore normal GPIO control.
+  if (coolantActivePin >= 0)
+  {
+    ledc_stop(LEDC_COOLANT_MODE, LEDC_COOLANT_CHANNEL, 0);
+    pinMode(coolantActivePin, OUTPUT);
+    digitalWrite(coolantActivePin, LOW);
+  }
+
+  if (desired >= 0)
+  {
+    ledc_timer_config_t coolantTimerConfig = {};
+    coolantTimerConfig.speed_mode = LEDC_COOLANT_MODE;
+    coolantTimerConfig.timer_num = LEDC_COOLANT_TIMER;
+    coolantTimerConfig.duty_resolution = LEDC_RESOLUTION;
+    coolantTimerConfig.freq_hz = coolantPwmFreq > 0 ? coolantPwmFreq : 100;
+    coolantTimerConfig.clk_cfg = LEDC_AUTO_CLK;
+    ledc_timer_config(&coolantTimerConfig);
+
+    ledc_channel_config_t coolantChannelConfig = {};
+    coolantChannelConfig.gpio_num = desired;
+    coolantChannelConfig.speed_mode = LEDC_COOLANT_MODE;
+    coolantChannelConfig.channel = LEDC_COOLANT_CHANNEL;
+    coolantChannelConfig.intr_type = LEDC_INTR_DISABLE;
+    coolantChannelConfig.timer_sel = LEDC_COOLANT_TIMER;
+    coolantChannelConfig.duty = LEDC_DUTY_OFF;
+    coolantChannelConfig.hpoint = 0;
+    ledc_channel_config(&coolantChannelConfig);
+  }
+
+  coolantActivePin = desired;
+}
+
+// Drive the coolant gauge each output cycle: while calibrating, hold the jog
+// duty so the needle can be read; otherwise map the live CAN temperature
+// through the calibration table. Only touches the LEDC driver on a change.
+void updateCoolantOutput()
+{
+  applyCoolantOutput();
+
+  if (coolantOutput == 0)
+    return;
+
+  // A diagnostic test overrides our pin — LEDC is detached, leave it alone so
+  // outputControlTask's direct drive wins.
+  if ((coolantOutput == 1 && testEML) || (coolantOutput == 2 && testEPC))
+    return;
+
+  static uint32_t lastFreq = 0;
+  if (coolantPwmFreq != lastFreq)
+  {
+    lastFreq = coolantPwmFreq;
+    ledc_set_freq(LEDC_COOLANT_MODE, LEDC_COOLANT_TIMER, coolantPwmFreq > 0 ? coolantPwmFreq : 100);
+  }
+
+  // Idiot-light gauge: while calibrating hold the jog duty; otherwise peg the
+  // needle fully (tripping the cluster's warning lamp) at or above the warning
+  // temperature, and stay off below it.
+  uint16_t duty;
+  if (coolantCalMode)
+    duty = coolantCalDutyNow;
+  else
+    duty = (vehicleCoolantTemp >= coolantWarnTemp) ? LEDC_COOLANT_MAX_DUTY : 0;
+  if (duty > LEDC_COOLANT_MAX_DUTY)
+    duty = LEDC_COOLANT_MAX_DUTY;
+  coolantAppliedDuty = duty;
+
+  static uint16_t lastDuty = 0xFFFF;
+  if (duty != lastDuty)
+  {
+    lastDuty = duty;
+    ledc_set_duty(LEDC_COOLANT_MODE, LEDC_COOLANT_CHANNEL, duty);
+    ledc_update_duty(LEDC_COOLANT_MODE, LEDC_COOLANT_CHANNEL);
   }
 }
 

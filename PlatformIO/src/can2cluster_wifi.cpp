@@ -172,6 +172,88 @@ static bool handleTestAction(const String &action)
   return false;
 }
 
+// Clears any EML/EPC light feature that clashes with the pin the coolant gauge
+// now owns, so a single pin is never driven for two purposes at once.
+static void applyCoolantExclusivity()
+{
+  if (coolantOutput == 1) // EML pin taken by coolant
+  {
+    useEMLShiftLight = false;
+    testEML = false;
+    if (dsgParkMode == "EML") dsgParkMode = "None";
+  }
+  else if (coolantOutput == 2) // EPC pin taken by coolant
+  {
+    useEPCShiftLight = false;
+    testEPC = false;
+    if (dsgParkMode == "EPC") dsgParkMode = "None";
+  }
+}
+
+// Add or update a calibration point (temperature -> current jog duty), keeping
+// the table sorted ascending by temperature. Returns false if the table is full.
+static bool coolantAddPoint(int16_t tempC, uint16_t duty)
+{
+  for (uint8_t i = 0; i < coolantCalCount; i++)
+  {
+    if (coolantCalTemp[i] == tempC)
+    {
+      coolantCalDuty[i] = duty;
+      return true;
+    }
+  }
+  if (coolantCalCount >= COOLANT_CAL_MAX)
+    return false;
+
+  uint8_t pos = 0;
+  while (pos < coolantCalCount && coolantCalTemp[pos] < tempC)
+    pos++;
+  for (uint8_t i = coolantCalCount; i > pos; i--)
+  {
+    coolantCalTemp[i] = coolantCalTemp[i - 1];
+    coolantCalDuty[i] = coolantCalDuty[i - 1];
+  }
+  coolantCalTemp[pos] = tempC;
+  coolantCalDuty[pos] = duty;
+  coolantCalCount++;
+  return true;
+}
+
+static void coolantDeletePoint(uint8_t index)
+{
+  if (index >= coolantCalCount)
+    return;
+  for (uint8_t i = index; i + 1 < coolantCalCount; i++)
+  {
+    coolantCalTemp[i] = coolantCalTemp[i + 1];
+    coolantCalDuty[i] = coolantCalDuty[i + 1];
+  }
+  coolantCalCount--;
+}
+
+static void sendCoolantCalState(AsyncWebServerRequest *request)
+{
+  JsonDocument doc;
+  doc["output"] = coolantOutput == 1 ? "EML" : (coolantOutput == 2 ? "EPC" : "Off");
+  doc["freq"] = coolantPwmFreq;
+  doc["calMode"] = coolantCalMode;
+  doc["duty"] = coolantCalDutyNow;
+  doc["maxDuty"] = 1023;
+  doc["appliedDuty"] = coolantAppliedDuty;
+  doc["temp"] = vehicleCoolantTemp;
+  doc["count"] = coolantCalCount;
+  JsonArray pts = doc["points"].to<JsonArray>();
+  for (uint8_t i = 0; i < coolantCalCount; i++)
+  {
+    JsonObject p = pts.add<JsonObject>();
+    p["temp"] = coolantCalTemp[i];
+    p["duty"] = coolantCalDuty[i];
+  }
+  AsyncResponseStream *response = request->beginResponseStream("application/json");
+  serializeJson(doc, *response);
+  request->send(response);
+}
+
 void setupWebRoutes()
 {
   // Serve static files from LittleFS.
@@ -197,6 +279,11 @@ void setupWebRoutes()
     doc["analyzerMode"] = analyzerMode;
     doc["analyzerSerial"] = analyzerSerial;
     doc["dsgParkMode"] = dsgParkMode;
+
+    // Coolant gauge output
+    doc["coolantOutput"] = coolantOutput == 1 ? "EML" : (coolantOutput == 2 ? "EPC" : "Off");
+    doc["coolantPwmFreq"] = coolantPwmFreq;
+    doc["coolantWarnTemp"] = coolantWarnTemp;
     
     // Advanced controls
     doc["testRPM"] = testRPM;
@@ -294,6 +381,12 @@ void setupWebRoutes()
     doc["analyzerMode"] = analyzerMode;
     doc["analyzerSerial"] = analyzerSerial;
     doc["freeHeap"] = ESP.getFreeHeap();
+
+    // Coolant gauge output
+    doc["vehicleCoolantTemp"] = vehicleCoolantTemp;
+    doc["coolantDuty"] = coolantAppliedDuty;
+    doc["coolantCalMode"] = coolantCalMode;
+    doc["coolantOutputActive"] = (coolantOutput != 0);
     
     /*
      Settings
@@ -414,6 +507,7 @@ void setupWebRoutes()
     if (key == "dsgParkMode") {
       String mode = value.as<const char*>();
       dsgParkMode = mode;
+      applyCoolantExclusivity();
       settingApplied = true;
     }
     
@@ -421,6 +515,22 @@ void setupWebRoutes()
       String mode = value.as<const char*>();
       useEMLShiftLight = (mode == "EML" || mode == "Both");
       useEPCShiftLight = (mode == "EPC" || mode == "Both");
+      applyCoolantExclusivity();
+      settingApplied = true;
+    }
+
+    if (key == "coolantOutput") {
+      String mode = value.as<const char*>();
+      coolantOutput = (mode == "EML") ? 1 : (mode == "EPC") ? 2 : 0;
+      applyCoolantExclusivity();
+      settingApplied = true;
+    }
+    if (key == "coolantPwmFreq") {
+      coolantPwmFreq = constrain(value.as<int>(), 10, COOLANT_PWM_FREQ_MAX);
+      settingApplied = true;
+    }
+    if (key == "coolantWarnTemp") {
+      coolantWarnTemp = constrain(value.as<int>(), 0, 140);
       settingApplied = true;
     }
     
@@ -485,6 +595,51 @@ void setupWebRoutes()
     handleTestAction(action);
     
     request->send(200, "application/json", "{\"ok\":true}"); });
+
+  // Coolant calibration builder: report live state, or apply a builder op.
+  server.on("/api/coolantcal", HTTP_GET, [](AsyncWebServerRequest *request)
+            { sendCoolantCalState(request); });
+
+  server.on("/api/coolantcal", HTTP_POST, [](AsyncWebServerRequest *request) {}, NULL, [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total)
+            {
+    if (index + len != total) return;
+
+    JsonDocument doc;
+    DeserializationError err = deserializeJson(doc, (const char*)data, len);
+    if (err) {
+      request->send(400, "application/json", "{\"ok\":false,\"error\":\"invalid_json\"}");
+      return;
+    }
+
+    String op = doc["op"] | "";
+
+    if (op == "enter") {
+      coolantCalMode = true;
+    } else if (op == "exit") {
+      coolantCalMode = false;
+    } else if (op == "jog") {
+      long d = (long)coolantCalDutyNow + (int)(doc["delta"] | 0);
+      coolantCalDutyNow = (uint16_t)constrain(d, 0L, 1023L);
+      coolantCalMode = true;
+    } else if (op == "setDuty") {
+      coolantCalDutyNow = (uint16_t)constrain((int)(doc["duty"] | 0), 0, 1023);
+      coolantCalMode = true;
+    } else if (op == "addPoint") {
+      int16_t t = (int16_t)(doc["temp"] | 0);
+      if (!coolantAddPoint(t, coolantCalDutyNow)) {
+        request->send(400, "application/json", "{\"ok\":false,\"error\":\"table_full\"}");
+        return;
+      }
+    } else if (op == "deletePoint") {
+      coolantDeletePoint((uint8_t)(doc["index"] | 0));
+    } else if (op == "clearPoints") {
+      coolantCalCount = 0;
+    } else {
+      request->send(400, "application/json", "{\"ok\":false,\"error\":\"unknown_op\"}");
+      return;
+    }
+
+    sendCoolantCalState(request); });
 
       server.on("/api/gpsRate", HTTP_POST, [](AsyncWebServerRequest *request) {}, nullptr, [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total)
                 {

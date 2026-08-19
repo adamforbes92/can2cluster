@@ -6,6 +6,10 @@ let settingsLoaded = false;
 function initApp() {
   initNavigation();
   initControls();
+  initCollapsibleCards();
+  initCoolant();
+  initOutputConflicts();
+  initOta();
   fetchSettings();  // Load settings once on page load
   fetchStatus();    // Initial status fetch
   setInterval(fetchStatus, 1000);  // Continue fetching live data only
@@ -24,6 +28,10 @@ function initNavigation() {
 
       pages.forEach((p) => p.classList.remove("active"));
       document.getElementById(`${page}-page`).classList.add("active");
+
+      if (page === "advanced") {
+        drawCoolantCurve();
+      }
     });
   });
 }
@@ -77,18 +85,10 @@ function initControls() {
     testShiftBtn.addEventListener('click', () => pushAction('testShiftLight'));
   }
 
-  const otaUploadBtn = document.getElementById('otaUploadBtn');
-  if (otaUploadBtn) {
-    otaUploadBtn.addEventListener('click', uploadFirmware);
-  }
-
   const otaFsUploadBtn = document.getElementById('otaFsUploadBtn');
-  if (otaFsUploadBtn) {
-    otaFsUploadBtn.addEventListener('click', uploadFilesystem);
-  }
 
   // Configuration controls
-  const configInputs = ['hasNeedleSweep', 'sweepSpeed', 'stepRPM', 'stepSpeed', 'shiftLight', 'shiftLimit', 'shiftFlashes', 'coilType', 'useMPH', 'dsgParkMode'];
+  const configInputs = ['hasNeedleSweep', 'sweepSpeed', 'stepRPM', 'stepSpeed', 'shiftLimit', 'shiftFlashes', 'coilType', 'useMPH'];
   configInputs.forEach(id => {
     const el = document.getElementById(id);
     if (el) {
@@ -96,6 +96,12 @@ function initControls() {
         const value = el.type === 'checkbox' ? el.checked : el.value;
         pushControl(id, value);
       });
+      if (el.type === 'range') {
+        el.addEventListener('input', () => {
+          const displayEl = document.getElementById(id + '-display');
+          if (displayEl) displayEl.textContent = el.value;
+        });
+      }
     }
   });
 
@@ -273,8 +279,11 @@ async function fetchSettings() {
     // Load all settings from API once
     document.getElementById('hasNeedleSweep').checked = data.hasNeedleSweep || false;
     document.getElementById('sweepSpeed').value = data.sweepSpeed || 0;
+    setText('sweepSpeed-display', data.sweepSpeed || 0);
     document.getElementById('stepRPM').value = data.stepRPM || 100;
+    setText('stepRPM-display', data.stepRPM || 100);
     document.getElementById('stepSpeed').value = data.stepSpeed || 100;
+    setText('stepSpeed-display', data.stepSpeed || 100);
     document.getElementById('shiftLight').value = data.shiftLight || 'None';
     document.getElementById('shiftLimit').value = data.shiftLimit || 0;
     document.getElementById('shiftFlashes').value = data.shiftFlashes || 0;
@@ -283,6 +292,17 @@ async function fetchSettings() {
     if (useMPHEl) useMPHEl.checked = data.useMPH || false;
     applySpeedUnitLabels(data.useMPH);
     document.getElementById('dsgParkMode').value = data.dsgParkMode || 'None';
+
+    // Coolant gauge output
+    const coolantOutputEl = document.getElementById('coolantOutput');
+    if (coolantOutputEl) coolantOutputEl.value = data.coolantOutput || 'Off';
+    const coolantWarnEl = document.getElementById('coolantWarnTemp');
+    if (coolantWarnEl) {
+      const wt = (data.coolantWarnTemp !== undefined) ? data.coolantWarnTemp : 120;
+      coolantWarnEl.value = wt;
+      const coolantWarnDisp = document.getElementById('coolantWarnTemp-display');
+      if (coolantWarnDisp) coolantWarnDisp.textContent = wt;
+    }
 
     // Advanced controls
     document.getElementById('testRPM').checked = data.testRPM || false;
@@ -379,6 +399,7 @@ async function fetchSettings() {
     }
 
     settingsLoaded = true;
+    syncLastOutputValues();
   } catch (error) {
     console.log('Error fetching settings:', error);
   }
@@ -442,9 +463,9 @@ async function fetchStatus() {
     }
     if (document.getElementById('liveGPSStatus')) {
       if (data.hasGPS) {
-        document.getElementById('liveGPSStatus').textContent = `Connected, ${data.gpsSatellites} satellites`;
+        document.getElementById('liveGPSStatus').textContent = `Connected (${data.gpsSatellites} sats)`;
       } else if (data.gpsUnavailable) {
-        document.getElementById('liveGPSStatus').textContent = 'Unavailable';
+        document.getElementById('liveGPSStatus').textContent = 'Not Available';
       } else {
         document.getElementById('liveGPSStatus').textContent = 'Not Connected';
       }
@@ -483,9 +504,9 @@ async function fetchStatus() {
     document.getElementById('canPresent').textContent = data.hasCAN ? 'Healthy' : 'Not Healthy';
     if (document.getElementById('gpsPresent')) {
       if (data.hasGPS) {
-        document.getElementById('gpsPresent').textContent = `Connected (${data.gpsSatellites} sat)`;
+        document.getElementById('gpsPresent').textContent = `Connected (${data.gpsSatellites} sats)`;
       } else if (data.gpsUnavailable) {
-        document.getElementById('gpsPresent').textContent = 'Unavailable';
+        document.getElementById('gpsPresent').textContent = 'Not Available';
       } else {
         document.getElementById('gpsPresent').textContent = 'Not Connected';
       }
@@ -516,6 +537,23 @@ async function fetchStatus() {
     document.getElementById('paddleUpStatus').textContent = data.paddleUp ? 'Active' : 'Inactive';
     document.getElementById('paddleDownStatus').textContent = data.paddleDown ? 'Active' : 'Inactive';
 
+    // Coolant gauge live data
+    if (document.getElementById('liveCoolantTemp')) {
+      document.getElementById('liveCoolantTemp').textContent =
+        (data.vehicleCoolantTemp !== undefined) ? data.vehicleCoolantTemp + ' \u00B0C' : '--';
+    }
+    if (document.getElementById('liveCoolantDuty')) {
+      document.getElementById('liveCoolantDuty').textContent =
+        (data.coolantDuty !== undefined) ? data.coolantDuty : '--';
+    }
+    if (data.vehicleCoolantTemp !== undefined) coolantState.temp = data.vehicleCoolantTemp;
+    if (data.coolantDuty !== undefined) coolantState.appliedDuty = data.coolantDuty;
+    if (typeof data.coolantCalMode === 'boolean') coolantState.calMode = data.coolantCalMode;
+    const coolantPageEl = document.getElementById('advanced-page');
+    if (coolantPageEl && coolantPageEl.classList.contains('active')) {
+      drawCoolantCurve();
+    }
+
   } catch (error) {
     console.log('Error fetching status:', error);
   }
@@ -530,11 +568,256 @@ function applySpeedUnitLabels(useMPH) {
 }
 
 function pushControl(key, value) {
-  fetch('/api/control', {
+  return fetch('/api/control', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ key, value })
   }).catch(e => console.log('Control error:', e));
+}
+
+// ---- Collapsible cards (SpeedPulser-style) ----
+function initCollapsibleCards() {
+  ['configuration-page', 'advanced-page', 'diag-page'].forEach(pageId => {
+    const page = document.getElementById(pageId);
+    if (!page) return;
+    page.querySelectorAll('.card').forEach(card => {
+      if (card.classList.contains('no-collapse')) return;
+      card.classList.add('collapsible', 'collapsed');
+      const h2 = card.querySelector('h2');
+      if (h2) {
+        h2.addEventListener('click', () => card.classList.toggle('collapsed'));
+      }
+    });
+  });
+}
+
+// ---- Coolant gauge calibration builder ----
+let coolantState = { duty: 0, maxDuty: 1023, calMode: false, points: [], temp: 0, appliedDuty: 0 };
+let coolantSelectedTemp = 90;
+
+function initCoolant() {
+  const warnEl = document.getElementById('coolantWarnTemp');
+  if (warnEl) {
+    warnEl.addEventListener('input', () => {
+      const d = document.getElementById('coolantWarnTemp-display');
+      if (d) d.textContent = warnEl.value;
+    });
+    warnEl.addEventListener('change', () => pushControl('coolantWarnTemp', Number(warnEl.value)));
+  }
+
+  const calModeEl = document.getElementById('coolantCalMode');
+  if (calModeEl) {
+    calModeEl.addEventListener('change', () => calPost({ op: calModeEl.checked ? 'enter' : 'exit' }));
+  }
+
+  // Jog steppers with press-and-hold repeat + acceleration
+  document.querySelectorAll('.stepper-btn[data-jog]').forEach(btn => {
+    const delta = Number(btn.dataset.jog);
+    attachHold(btn, () => calPost({ op: 'jog', delta }));
+  });
+
+  const tempEl = document.getElementById('coolantTargetTemp');
+  if (tempEl) {
+    tempEl.addEventListener('input', () => setCoolantTarget(Number(tempEl.value) || 0, false));
+  }
+
+  const capBtn = document.getElementById('coolantCaptureBtn');
+  if (capBtn) {
+    capBtn.addEventListener('click', () => {
+      calPost({ op: 'addPoint', temp: coolantSelectedTemp }).then(() => {
+        showNotification('Captured ' + coolantSelectedTemp + ' \u00B0C @ duty ' + (coolantState.duty || 0));
+      });
+    });
+  }
+
+  const clrBtn = document.getElementById('coolantClearBtn');
+  if (clrBtn) {
+    clrBtn.addEventListener('click', () => {
+      if (confirm('Clear all calibration points?')) calPost({ op: 'clearPoints' });
+    });
+  }
+
+  const chipWrap = document.getElementById('coolantTargetChips');
+  if (chipWrap) {
+    [40, 60, 80, 90, 100, 110].forEach(v => {
+      const chip = document.createElement('button');
+      chip.className = 'chip';
+      chip.dataset.temp = v;
+      chip.textContent = v + ' \u00B0C';
+      chip.addEventListener('click', () => setCoolantTarget(v, true));
+      chipWrap.appendChild(chip);
+    });
+  }
+  setCoolantTarget(coolantSelectedTemp, false);
+
+  // Initial calibration state
+  fetch('/api/coolantcal').then(r => r.json()).then(applyCoolantState).catch(() => {});
+}
+
+function calPost(payload) {
+  return fetch('/api/coolantcal', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  }).then(r => r.json()).then(applyCoolantState).catch(e => console.log('coolantcal error:', e));
+}
+
+function applyCoolantState(s) {
+  if (!s) return;
+  coolantState = Object.assign(coolantState, s);
+  const duty = s.duty || 0;
+  const dutyNow = document.getElementById('coolantDutyNow');
+  if (dutyNow) dutyNow.textContent = duty;
+  const dutyPct = document.getElementById('coolantDutyPct');
+  if (dutyPct) dutyPct.textContent = (duty / 1023 * 100).toFixed(1);
+  const capDuty = document.getElementById('coolantCaptureDuty');
+  if (capDuty) capDuty.textContent = duty;
+  const calModeEl = document.getElementById('coolantCalMode');
+  if (calModeEl) calModeEl.checked = !!s.calMode;
+  renderCoolantPoints();
+  drawCoolantCurve();
+}
+
+function renderCoolantPoints() {
+  const list = document.getElementById('coolantPointsList');
+  if (!list) return;
+  const pts = coolantState.points || [];
+  if (!pts.length) {
+    list.innerHTML = '<p class="hint">No points captured yet.</p>';
+    return;
+  }
+  let html = '<div class="cal-point-head"><span>Temp</span><span>Duty</span><span></span></div>';
+  pts.forEach((p, i) => {
+    html += '<div class="cal-point-row">' +
+              '<span>' + p.temp + ' \u00B0C</span>' +
+              '<span>' + p.duty + '</span>' +
+              '<button class="cal-del" data-index="' + i + '" title="Remove point">\u2715</button>' +
+            '</div>';
+  });
+  list.innerHTML = html;
+  list.querySelectorAll('.cal-del').forEach(btn => {
+    btn.addEventListener('click', () => {
+      calPost({ op: 'deletePoint', index: parseInt(btn.dataset.index, 10) });
+    });
+  });
+}
+
+// Press-and-hold helper: fires immediately, then repeats faster while held.
+function attachHold(el, fn) {
+  let timer = null;
+  let delay = 320;
+  const stop = () => { if (timer) { clearTimeout(timer); timer = null; } };
+  const start = (e) => {
+    e.preventDefault();
+    fn();
+    delay = 320;
+    const tick = () => { fn(); delay = Math.max(60, delay * 0.8); timer = setTimeout(tick, delay); };
+    timer = setTimeout(tick, delay);
+  };
+  el.addEventListener('pointerdown', start);
+  el.addEventListener('pointerup', stop);
+  el.addEventListener('pointerleave', stop);
+  el.addEventListener('pointercancel', stop);
+}
+
+function setCoolantTarget(temp, fromChip) {
+  coolantSelectedTemp = temp;
+  const input = document.getElementById('coolantTargetTemp');
+  if (input && fromChip) input.value = temp;
+  const capTemp = document.getElementById('coolantCaptureTemp');
+  if (capTemp) capTemp.textContent = temp;
+  highlightCoolantChip();
+}
+
+function highlightCoolantChip() {
+  document.querySelectorAll('#coolantTargetChips .chip').forEach(chip => {
+    chip.classList.toggle('active', Number(chip.dataset.temp) === coolantSelectedTemp);
+  });
+}
+
+function drawCoolantCurve() {
+  const canvas = document.getElementById('coolantCurveCanvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  const styles = getComputedStyle(document.documentElement);
+  const cPrimary = (styles.getPropertyValue('--primary') || '#00D9FF').trim();
+  const cSecondary = (styles.getPropertyValue('--secondary') || '#FF6B35').trim();
+  const cSuccess = (styles.getPropertyValue('--success') || '#2EA043').trim();
+  const cDim = (styles.getPropertyValue('--text-dim') || '#8B949E').trim();
+  const cGrid = (styles.getPropertyValue('--border') || '#30363D').trim();
+
+  ctx.clearRect(0, 0, W, H);
+  const padL = 46, padR = 16, padT = 16, padB = 34;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+
+  const pts = (coolantState.points || []).slice().sort((a, b) => a.temp - b.temp);
+
+  let tMin = 0, tMax = 120;
+  if (pts.length) {
+    tMin = Math.min(tMin, pts[0].temp);
+    tMax = Math.max(tMax, pts[pts.length - 1].temp);
+  }
+  if (typeof coolantState.temp === 'number') {
+    tMin = Math.min(tMin, coolantState.temp);
+    tMax = Math.max(tMax, coolantState.temp);
+  }
+  if (tMax - tMin < 10) tMax = tMin + 10;
+  const dMax = coolantState.maxDuty || 1023;
+
+  const xOf = t => padL + (t - tMin) / (tMax - tMin) * plotW;
+  const yOf = d => padT + plotH - (d / dMax) * plotH;
+
+  ctx.strokeStyle = cGrid;
+  ctx.lineWidth = 1;
+  ctx.fillStyle = cDim;
+  ctx.font = '11px sans-serif';
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  for (let i = 0; i <= 4; i++) {
+    const d = dMax * i / 4;
+    const y = yOf(d);
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); ctx.stroke();
+    ctx.fillText(Math.round(d), padL - 6, y);
+  }
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  for (let i = 0; i <= 4; i++) {
+    const t = tMin + (tMax - tMin) * i / 4;
+    ctx.fillText(Math.round(t) + '\u00B0', xOf(t), H - padB + 6);
+  }
+
+  if (pts.length >= 1) {
+    ctx.strokeStyle = cPrimary;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(xOf(tMin), yOf(pts[0].duty));
+    pts.forEach(p => ctx.lineTo(xOf(p.temp), yOf(p.duty)));
+    ctx.lineTo(xOf(tMax), yOf(pts[pts.length - 1].duty));
+    ctx.stroke();
+    ctx.fillStyle = cSecondary;
+    pts.forEach(p => {
+      ctx.beginPath();
+      ctx.arc(xOf(p.temp), yOf(p.duty), 4, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  }
+
+  if (typeof coolantState.temp === 'number') {
+    const lt = coolantState.temp;
+    const ld = coolantState.appliedDuty || 0;
+    ctx.strokeStyle = cSuccess;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(xOf(lt), padT);
+    ctx.lineTo(xOf(lt), padT + plotH);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = cSuccess;
+    ctx.beginPath();
+    ctx.arc(xOf(lt), yOf(ld), 5, 0, Math.PI * 2);
+    ctx.fill();
+  }
 }
 
 function pushAction(action) {
@@ -575,108 +858,236 @@ function showNotification(message, type = "success") {
   }, 3000);
 }
 
-async function uploadFirmware() {
-  const fileInput = document.getElementById('otaBinFile');
-  const statusEl = document.getElementById('otaStatus');
-  const progressEl = document.getElementById('otaProgress');
-  const uploadBtn = document.getElementById('otaUploadBtn');
+// ===== Small DOM helper =====
+function setText(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = val;
+}
 
-  if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
-    if (statusEl) statusEl.textContent = 'Please select a .bin file first';
-    return;
+// ============================================================================
+// Output pin conflict handling (EML / EPC shared by Shift Light, DSG Park and
+// the Coolant gauge). Applying a new owner for a pin turns off whatever else
+// was using it, with a confirmation prompt + toast so nothing is silently lost.
+// ============================================================================
+const OUTPUT_IDS = ['shiftLight', 'dsgParkMode', 'coolantOutput'];
+const FEATURE_LABELS = {
+  shiftLight: 'Shift Light',
+  dsgParkMode: 'DSG Park Indicator',
+  coolantOutput: 'Coolant Gauge'
+};
+let lastOutputValues = {};
+
+function pinsForFeature(featureId, value) {
+  if (featureId === 'shiftLight') {
+    if (value === 'Both') return ['EML', 'EPC'];
+    if (value === 'EML') return ['EML'];
+    if (value === 'EPC') return ['EPC'];
+    return [];
   }
+  // dsgParkMode and coolantOutput each own a single pin (or none)
+  if (value === 'EML') return ['EML'];
+  if (value === 'EPC') return ['EPC'];
+  return [];
+}
 
-  const file = fileInput.files[0];
-  const formData = new FormData();
-  formData.append('firmware', file, file.name);
+function clearedValueForPin(featureId, currentValue, pin) {
+  if (featureId === 'shiftLight') {
+    // "Both" releasing one pin keeps the other; otherwise turn the light off
+    if (currentValue === 'Both') return pin === 'EML' ? 'EPC' : 'EML';
+    return 'None';
+  }
+  if (featureId === 'coolantOutput') return 'Off';
+  return 'None'; // dsgParkMode
+}
 
-  return new Promise((resolve) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', '/api/ota');
-
-    if (uploadBtn) uploadBtn.disabled = true;
-    if (progressEl) { progressEl.style.display = 'block'; progressEl.value = 0; }
-
-    xhr.upload.addEventListener('progress', (e) => {
-      if (e.lengthComputable) {
-        const pct = Math.round((e.loaded / e.total) * 100);
-        if (statusEl) statusEl.textContent = `Uploading... ${pct}%`;
-        if (progressEl) progressEl.value = pct;
-      }
-    });
-
-    xhr.addEventListener('load', () => {
-      if (xhr.status === 200) {
-        if (statusEl) statusEl.textContent = 'Upload complete. Device rebooting...';
-        if (progressEl) progressEl.value = 100;
-      } else {
-        if (statusEl) statusEl.textContent = 'Upload failed. Please try again.';
-        if (progressEl) progressEl.style.display = 'none';
-        if (uploadBtn) uploadBtn.disabled = false;
-      }
-      resolve();
-    });
-
-    xhr.addEventListener('error', () => {
-      if (statusEl) statusEl.textContent = 'Upload failed. Check connection and retry.';
-      if (progressEl) progressEl.style.display = 'none';
-      if (uploadBtn) uploadBtn.disabled = false;
-      resolve();
-    });
-
-    xhr.send(formData);
+function syncLastOutputValues() {
+  OUTPUT_IDS.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) lastOutputValues[id] = el.value;
   });
 }
 
-async function uploadFilesystem() {
-  const fileInput = document.getElementById('otaFsBinFile');
-  const statusEl = document.getElementById('otaFsStatus');
-  const progressEl = document.getElementById('otaFsProgress');
-  const uploadBtn = document.getElementById('otaFsUploadBtn');
+function initOutputConflicts() {
+  OUTPUT_IDS.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('change', () => handleOutputChange(id, el));
+  });
+  syncLastOutputValues();
+}
 
-  if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
-    if (statusEl) statusEl.textContent = 'Please select a .bin file first';
-    return;
+function handleOutputChange(changingId, el) {
+  const newValue = el.value;
+  const prevValue = lastOutputValues[changingId];
+  const desiredPins = pinsForFeature(changingId, newValue);
+
+  // Find other features currently claiming any of the pins we now want
+  const seen = new Set();
+  const conflicts = [];
+  desiredPins.forEach(pin => {
+    OUTPUT_IDS.forEach(otherId => {
+      if (otherId === changingId || seen.has(otherId)) return;
+      const otherEl = document.getElementById(otherId);
+      if (!otherEl) return;
+      if (pinsForFeature(otherId, otherEl.value).includes(pin)) {
+        seen.add(otherId);
+        conflicts.push({
+          id: otherId,
+          el: otherEl,
+          cleared: clearedValueForPin(otherId, otherEl.value, pin)
+        });
+      }
+    });
+  });
+
+  if (conflicts.length) {
+    const msg =
+      `${FEATURE_LABELS[changingId]} will use the ${desiredPins.join(' & ')} ` +
+      `output${desiredPins.length > 1 ? 's' : ''}.\n\nThis will turn off:\n` +
+      conflicts.map(c => `  \u2022 ${FEATURE_LABELS[c.id]} (currently ${c.el.value})`).join('\n') +
+      `\n\nApply this change?`;
+    if (!confirm(msg)) {
+      el.value = prevValue; // user cancelled: restore previous selection
+      return;
+    }
   }
 
-  const file = fileInput.files[0];
-  const formData = new FormData();
-  formData.append('filesystem', file, file.name);
+  (async () => {
+    // Release conflicting owners first so the server sees pins free
+    for (const c of conflicts) {
+      c.el.value = c.cleared;
+      lastOutputValues[c.id] = c.cleared;
+      await pushControl(c.id, c.cleared);
+    }
+    await pushControl(changingId, newValue);
+    lastOutputValues[changingId] = newValue;
 
-  return new Promise((resolve) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', '/api/ota/fs');
+    if (conflicts.length) {
+      showNotification(
+        `${FEATURE_LABELS[changingId]} now uses ${desiredPins.join(' & ')} \u2014 ` +
+        conflicts.map(c => FEATURE_LABELS[c.id]).join(' & ') + ' turned off'
+      );
+    }
+  })();
+}
 
-    if (uploadBtn) uploadBtn.disabled = true;
-    if (progressEl) { progressEl.style.display = 'block'; progressEl.value = 0; }
+// ============================================================================
+// OTA update manager
+// ============================================================================
+let otaSelectedFile = null;
 
-    xhr.upload.addEventListener('progress', (e) => {
-      if (e.lengthComputable) {
-        const pct = Math.round((e.loaded / e.total) * 100);
-        if (statusEl) statusEl.textContent = `Uploading... ${pct}%`;
-        if (progressEl) progressEl.value = pct;
-      }
-    });
+function initOta() {
+  const dropZone = document.getElementById('otaDropZone');
+  const fileInput = document.getElementById('otaFile');
+  const chooseBtn = document.getElementById('otaChooseBtn');
+  const uploadBtn = document.getElementById('otaUploadBtn');
+  if (!dropZone || !fileInput || !uploadBtn) return;
 
-    xhr.addEventListener('load', () => {
-      if (xhr.status === 200) {
-        if (statusEl) statusEl.textContent = 'Upload complete. Device rebooting...';
-        if (progressEl) progressEl.value = 100;
-      } else {
-        if (statusEl) statusEl.textContent = 'Upload failed. Please try again.';
-        if (progressEl) progressEl.style.display = 'none';
-        if (uploadBtn) uploadBtn.disabled = false;
-      }
-      resolve();
-    });
+  // Populate firmware info
+  fetch('/api/ota/info')
+    .then(r => r.json())
+    .then(info => {
+      setText('otaFwVersion', info.version || '--');
+      setText('otaHardware', info.hardware || '--');
+      setText('otaBoard', info.board || '--');
+    })
+    .catch(() => { /* offline: leave placeholders */ });
 
-    xhr.addEventListener('error', () => {
-      if (statusEl) statusEl.textContent = 'Upload failed. Check connection and retry.';
-      if (progressEl) progressEl.style.display = 'none';
-      if (uploadBtn) uploadBtn.disabled = false;
-      resolve();
-    });
+  const pick = () => fileInput.click();
+  if (chooseBtn) chooseBtn.addEventListener('click', (e) => { e.stopPropagation(); pick(); });
+  dropZone.addEventListener('click', pick);
 
-    xhr.send(formData);
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files && fileInput.files.length) selectOtaFile(fileInput.files[0]);
   });
+
+  ['dragenter', 'dragover'].forEach(ev =>
+    dropZone.addEventListener(ev, (e) => {
+      e.preventDefault();
+      dropZone.classList.add('drag-over');
+    })
+  );
+  ['dragleave', 'drop'].forEach(ev =>
+    dropZone.addEventListener(ev, (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('drag-over');
+    })
+  );
+  dropZone.addEventListener('drop', (e) => {
+    if (e.dataTransfer.files && e.dataTransfer.files.length) selectOtaFile(e.dataTransfer.files[0]);
+  });
+
+  uploadBtn.addEventListener('click', startOtaUpload);
+}
+
+function selectOtaFile(file) {
+  if (!file.name.toLowerCase().endsWith('.bin')) {
+    setOtaStatus('Please choose a .bin file', 'error');
+    return;
+  }
+  otaSelectedFile = file;
+  const dropZone = document.getElementById('otaDropZone');
+  if (dropZone) dropZone.classList.add('file-selected');
+  setText('otaFileName', file.name);
+  setOtaStatus('', '');
+}
+
+function setOtaStatus(msg, type) {
+  const el = document.getElementById('otaStatus');
+  if (!el) return;
+  el.textContent = msg;
+  el.className = 'ota-status' + (type ? ' ' + type : '');
+}
+
+function startOtaUpload() {
+  if (!otaSelectedFile) {
+    setOtaStatus('Select a .bin file first', 'error');
+    return;
+  }
+  const type = (document.getElementById('otaType') || {}).value || 'firmware';
+  const url = type === 'filesystem' ? '/api/ota/fs' : '/api/ota';
+  const uploadBtn = document.getElementById('otaUploadBtn');
+  const progressWrap = document.getElementById('otaProgressWrap');
+  const progressBar = document.getElementById('otaProgressBar');
+  const progressLabel = document.getElementById('otaProgressLabel');
+
+  const formData = new FormData();
+  formData.append('update', otaSelectedFile, otaSelectedFile.name);
+
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', url);
+
+  if (uploadBtn) uploadBtn.disabled = true;
+  if (progressWrap) progressWrap.style.display = 'block';
+  if (progressBar) progressBar.style.width = '0%';
+  if (progressLabel) progressLabel.textContent = '0%';
+  setOtaStatus('Uploading...', '');
+
+  xhr.upload.addEventListener('progress', (e) => {
+    if (!e.lengthComputable) return;
+    const pct = Math.round((e.loaded / e.total) * 100);
+    if (progressBar) progressBar.style.width = pct + '%';
+    if (progressLabel) progressLabel.textContent = pct + '%';
+  });
+
+  xhr.addEventListener('load', () => {
+    let ok = false;
+    try { ok = JSON.parse(xhr.responseText).success === true; } catch (e) { ok = xhr.status === 200; }
+    if (ok) {
+      if (progressBar) progressBar.style.width = '100%';
+      if (progressLabel) progressLabel.textContent = '100%';
+      setOtaStatus('Update complete. Device rebooting...', 'success');
+    } else {
+      setOtaStatus('Update failed. Please try again.', 'error');
+      if (progressWrap) progressWrap.style.display = 'none';
+      if (uploadBtn) uploadBtn.disabled = false;
+    }
+  });
+
+  xhr.addEventListener('error', () => {
+    setOtaStatus('Upload failed. Check connection and retry.', 'error');
+    if (progressWrap) progressWrap.style.display = 'none';
+    if (uploadBtn) uploadBtn.disabled = false;
+  });
+
+  xhr.send(formData);
 }

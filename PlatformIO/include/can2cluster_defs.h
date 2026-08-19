@@ -15,7 +15,11 @@
 #include <ESPmDNS.h>        // included for WiFi pages
 #include <OneButton.h>
 
-#define FW_VERSION "3.10"
+#define FW_VERSION "3.20"
+
+#define COOLANT_CAL_MAX 12 // max calibration points for the coolant temp gauge
+// LEDC 10-bit resolution at the 80 MHz APB clock tops out at 80e6/1024 ≈ 78125 Hz.
+#define COOLANT_PWM_FREQ_MAX 78000
 
 /* Defines */
 // Debug statements
@@ -299,6 +303,17 @@ extern bool testEPC;                      // bool to force turn on EPC
 extern bool testReverse;                  // bool to force turn on Reverse
 extern String dsgParkMode;                // DSG Park behavior: "None", "EML", or "EPC"
 
+// Coolant temperature gauge (PWM on a shared ULN2003 output, EML or EPC pin)
+extern uint8_t coolantOutput;                  // 0=Off, 1=EML pin, 2=EPC pin (mutually exclusive with that pin's light features)
+extern uint32_t coolantPwmFreq;                // fixed PWM carrier frequency (Hz) driving the gauge
+extern uint8_t coolantWarnTemp;                // idiot-light threshold (deg C): peg gauge & warning lamp at/above this
+extern uint8_t coolantCalCount;                // number of calibration points in use
+extern int16_t coolantCalTemp[COOLANT_CAL_MAX];  // calibration temperature points (deg C), kept sorted ascending
+extern uint16_t coolantCalDuty[COOLANT_CAL_MAX]; // calibration duty points (0-1023), paired with coolantCalTemp
+extern bool coolantCalMode;                    // when true, output is driven at coolantCalDutyNow so the needle can be read
+extern uint16_t coolantCalDutyNow;             // live jog duty used while calibrating (0-1023)
+extern uint16_t coolantAppliedDuty;            // last duty actually written to the gauge (for status/curve)
+
 // Blink LED state
 struct BlinkState
 {
@@ -357,6 +372,51 @@ extern uint32_t stackcheckError;
 
 #define fordECU1_ID 0x201
 #define fordECU2_ID 0x420
+
+// MQB platform CAN addresses (from the OpenHaldex project / vw_mqb.dbc + MQB FCAN K-matrix).
+// All not req. but here for keepsakes
+#define LWI_01 0x086        // steering-angle sensor (Lenkwinkelinformation)
+#define ESP_14 0x08A        // ESP-to-AWD coupling-range limits
+#define MOTOR_11 0x0A7      // engine torque demand/output broadcast
+#define MOTOR_12 0x0A8      // high-rate engine speed/torque broadcast (RPM)
+#define GETRIEBE_11 0x0AD   // transmission/DSG status broadcast (gear lever, target gear)
+#define GETRIEBE_17 0x0B1   // DSG paddle/tip status
+#define ESP_19 0x0B2        // per-wheel ABS speeds broadcast
+#define ESP_21 0x0FD        // ESP/ASR mode + vehicle reference speed
+#define ESP_02 0x101        // ESP broadcast
+#define EPB_01 0x104        // electronic parking brake state
+#define ESP_05 0x106        // brake pressure + brake-light/brake-pedal flags
+#define MOTOR_04 0x107      // engine torque/charge broadcast (boost)
+#define ESP_10 0x116        // lateral dynamics / yaw + lateral accel
+#define MOTOR_20 0x121      // accelerator pedal raw/filtered + status
+#define ESP_18 0x135        // ESP minor broadcast
+#define ESP_29 0x18C        // ESP broadcast
+#define KOMBI_01 0x30B      // instrument cluster broadcast (handbrake)
+#define BLINKMODI_02 0x366  // hazard / turn-signal status broadcast
+#define CHARISMA_01 0x385   // drive-profile (Charisma) selection
+#define ESP_07 0x392        // ESP broadcast
+#define MOTOR_14 0x3BE      // low-rate engine state/event broadcast (kickdown)
+#define GETRIEBE_14 0x3C8   // transmission broadcast
+#define GATEWAY_72 0x3DB    // gateway body lighting state
+#define PARKHILFE_04 0x54B  // park-assist broadcast
+#define SYSTEMINFO_01 0x585 // system info broadcast
+#define ESP_23 0x5BE        // ESP broadcast
+#define MOTOR_07 0x640      // low-rate engine data broadcast (coolant temp)
+#define MOTOR_CODE_01 0x641 // engine code broadcast
+#define ESP_20 0x65D        // ESP broadcast
+#define MOTOR_18 0x670      // low-rate engine status broadcast (EPC lamp)
+#define DIAGNOSE_01 0x6B2   // diagnostics broadcast
+#define KOMBI_02 0x6B7      // instrument cluster broadcast
+
+// MQB Getriebe_11 GE_Fahrstufe (gear-lever position) values — byte 5 bits 2..5.
+// Verified against OpenHaldex MQB log "gears all inc tip and sport.csv".
+#define MQB_FAHRSTUFE_INIT 0x0 // init / no display
+#define MQB_FAHRSTUFE_P 0x5    // park
+#define MQB_FAHRSTUFE_R 0x6    // reverse
+#define MQB_FAHRSTUFE_N 0x7    // neutral
+#define MQB_FAHRSTUFE_D 0x8    // drive
+#define MQB_FAHRSTUFE_S 0x9    // sport
+#define MQB_FAHRSTUFE_TIP 0xD  // tiptronic / manual gate
 
 // for main functions
 extern void basicInit(void);

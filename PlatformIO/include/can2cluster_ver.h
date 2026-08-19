@@ -31,4 +31,9 @@ V3.02 - changed rpm/speed update rate to ensure GPS has a chance to update and r
 V3.10 - added power management - turning WiFi off after 1 minute of inactivity.  Reboot to enable.  Cuts power from 300mA idle to 170mA and runs cooler.
     * board to be revised with a buck converter but space/redesign etc.
 
+
+V3.20 - added MQB support. Added TP2.0 and UDS speed support for DSG speed.  Added aftermarket speed input for non-VW vehicles
+      - added coolant temp output.  Uses a PWM signal to 'drive' the cluster gauge.  Can be calibrated via. WiFi
+      - Added a PWM frequency limit to avoid high-temp LED lighting
+
 */

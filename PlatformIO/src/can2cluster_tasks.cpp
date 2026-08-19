@@ -264,14 +264,33 @@ void outputControlTask(void *args)
     bool blinkOwnsEML = blinkState.active && blinkState.boolEML;
     bool blinkOwnsEPC = blinkState.active && blinkState.boolEPC;
 
-    if (!blinkOwnsEML)
+    // The coolant gauge (if enabled) owns one of the EML/EPC pins as a PWM
+    // output — skip the digital drive for that pin and let updateCoolantOutput
+    // handle it instead.
+    bool coolantOwnsEML = (coolantOutput == 1);
+    bool coolantOwnsEPC = (coolantOutput == 2);
+
+    // Normal EML/EPC drive, unless the pin is owned by the blink sequence, the
+    // coolant PWM gauge, or held by a diagnostic test (handled below).
+    if (!blinkOwnsEML && !coolantOwnsEML && !testEML)
     {
-      testEML ? digitalWrite(pinEML, HIGH) : digitalWrite(pinEML, finalEML);
+      digitalWrite(pinEML, finalEML);
     }
-    if (!blinkOwnsEPC)
+    if (!blinkOwnsEPC && !coolantOwnsEPC && !testEPC)
     {
-      testEPC ? digitalWrite(pinEPC, HIGH) : digitalWrite(pinEPC, finalEPC);
+      digitalWrite(pinEPC, finalEPC);
     }
+
+    updateCoolantOutput();
+
+    // Diagnostic test outputs are a hard override ("direct short") — driven
+    // last so they beat the coolant PWM gauge, shift-light blink and DSG park.
+    // updateCoolantOutput() releases the LEDC channel on a tested pin so this
+    // plain digitalWrite actually reaches the GPIO.
+    if (testEML)
+      digitalWrite(pinEML, HIGH);
+    if (testEPC)
+      digitalWrite(pinEPC, HIGH);
     testReverse ? digitalWrite(pinReverse, HIGH) : digitalWrite(pinReverse, vehicleReverse);
 
     vTaskDelay(pdMS_TO_TICKS(10));

@@ -9,13 +9,13 @@
     <meta http-equiv="Expires" content="0">
 
     <title>Can2Cluster</title>
-    <link rel="stylesheet" href="style.css?v=2.01">
+    <link rel="stylesheet" href="style.css?v=3.20">
 </head>
 
 <body>
     <div class="container">
         <header>
-            <h1>Can2Cluster V2</h1>
+            <h1>Can2Cluster V3</h1>
             <div class="status-bar">
                 <span class="status-badge" id="canStatus">CAN: --</span>
                 <span class="status-badge" id="fwVersion">FW: --</span>
@@ -26,6 +26,7 @@
             <button class="nav-tab active" data-page="dashboard">Dashboard</button>
             <button class="nav-tab" data-page="configuration">Configuration</button>
             <button class="nav-tab" data-page="advanced">Advanced</button>
+            <button class="nav-tab" data-page="diag">Diagnostics</button>
             <button class="nav-tab" data-page="ota">OTA</button>
         </nav>
 
@@ -95,16 +96,16 @@
                     </label>
                 </div>
                 <div class="input-group">
-                    <label>Sweep Speed (ms)</label>
-                    <input type="number" id="sweepSpeed" min="1" max="100" value="18">
+                    <label>Sweep Speed (ms): <span id="sweepSpeed-display">18</span></label>
+                    <input type="range" id="sweepSpeed" min="1" max="100" step="1" value="18" class="slider">
                 </div>
                 <div class="input-group">
-                    <label>RPM Step</label>
-                    <input type="number" id="stepRPM" min="0" max="500" value="100">
+                    <label>RPM Step: <span id="stepRPM-display">100</span></label>
+                    <input type="range" id="stepRPM" min="0" max="500" step="5" value="100" class="slider">
                 </div>
                 <div class="input-group">
-                    <label>Speed Step</label>
-                    <input type="number" id="stepSpeed" min="0" max="500" value="100">
+                    <label>Speed Step: <span id="stepSpeed-display">100</span></label>
+                    <input type="range" id="stepSpeed" min="0" max="500" step="5" value="100" class="slider">
                 </div>
                 <button class="btn-secondary" id="testNeedleSweep">Test Needle Sweep</button>
             </section>
@@ -161,84 +162,6 @@
         </div>
 
         <div class="page" id="advanced-page">
-            <section class="card">
-                <h2>Live Data - All Inputs</h2>
-                <div class="live-data-grid">
-                    <div class="live-data-item">
-                        <div class="live-data-label">RPM</div>
-                        <div class="live-data-value" id="liveRPM">--</div>
-                    </div>
-                    <div class="live-data-item">
-                        <div class="live-data-label">Hall RPM</div>
-                        <div class="live-data-value" id="liveHallRPM">--</div>
-                    </div>
-                    <div class="live-data-item">
-                        <div class="live-data-label">CAN RPM</div>
-                        <div class="live-data-value" id="liveCANRPM">--</div>
-                    </div>
-                    <div class="live-data-item">
-                        <div class="live-data-label">Hall Speed</div>
-                        <div class="live-data-value" id="liveHallSpeed">--</div>
-                    </div>
-                    <div class="live-data-item">
-                        <div class="live-data-label">ECU Speed</div>
-                        <div class="live-data-value" id="liveECUSpeed">--</div>
-                    </div>
-                    <div class="live-data-item">
-                        <div class="live-data-label">ABS Speed</div>
-                        <div class="live-data-value" id="liveABSSpeed">--</div>
-                    </div>
-                    <div class="live-data-item">
-                        <div class="live-data-label">DSG Speed</div>
-                        <div class="live-data-value" id="liveDSGSpeed">--</div>
-                    </div>
-                    <div class="live-data-item">
-                        <div class="live-data-label">TP2.0/UDS Speed</div>
-                        <div class="live-data-value" id="liveUDSSpeed">--</div>
-                    </div>
-                    <div class="live-data-item">
-                        <div class="live-data-label">GPS Speed</div>
-                        <div class="live-data-value" id="liveGPSSpeed">--</div>
-                    </div>
-                    <div class="live-data-item">
-                        <div class="live-data-label">Custom CAN Speed</div>
-                        <div class="live-data-value" id="liveAftermarketSpeed">--</div>
-                    </div>
-                    <div class="live-data-item">
-                        <div class="live-data-label">GPS Status</div>
-                        <div class="live-data-value" id="liveGPSStatus">--</div>
-                    </div>
-                </div>
-            </section>
-
-            <section class="card">
-                <h2>RPM Output Test</h2>
-                <div class="form-group">
-                    <label>
-                        <input type="checkbox" id="testRPM">
-                        Enable RPM Test
-                    </label>
-                </div>
-                <div class="input-group">
-                    <label>Test RPM Value: <span id="tempRPM-display" style="transition: background-color 0.3s;">0</span> RPM</label>
-                    <input type="range" id="tempRPM" min="0" max="8000" value="0" class="slider">
-                </div>
-            </section>
-
-            <section class="card">
-                <h2>Speed Output Test</h2>
-                <div class="form-group">
-                    <label>
-                        <input type="checkbox" id="testSpeedo">
-                        Enable Speed Test
-                    </label>
-                </div>
-                <div class="input-group">
-                    <label>Test Speed Value: <span id="tempSpeed-display" style="transition: background-color 0.3s;">0</span> <span id="tempSpeed-unit">KMH</span></label>
-                    <input type="range" id="tempSpeed" min="0" max="200" value="0" class="slider">
-                </div>
-            </section>
-
             <section class="card">
                 <h2>Broadcast Speed</h2>
                 <div class="form-group">
@@ -329,21 +252,6 @@
             </section>
 
             <section class="card">
-                <h2>Diagnostic Mode</h2>
-                <p style="margin-top: 0; color: #b00020;">
-                    When enabled, all normal speed/RPM/output processing is bypassed and the
-                    device cycles every output (RPM, Speed, EML, EPC, Reverse, Park) as a
-                    bench test. Setting is persisted &mdash; disable before driving!
-                </p>
-                <div class="form-group">
-                    <label>
-                        <input type="checkbox" id="diagTest">
-                        Enable Diagnostic Output Test
-                    </label>
-                </div>
-            </section>
-
-            <section class="card">
                 <h2>CAN Analyzer</h2>
                 <p style="margin-top: 0;">
                     Forward all received CAN frames to SavvyCAN. WiFi and Serial modes are mutually exclusive.
@@ -360,28 +268,6 @@
                     <label>
                         <input type="checkbox" id="analyzerSerial">
                         SavvyCAN via Serial
-                    </label>
-                </div>
-            </section>
-
-            <section class="card">
-                <h2>Output Tests</h2>
-                <div class="form-group">
-                    <label>
-                        <input type="checkbox" id="testReverse">
-                        Test Reverse Output
-                    </label>
-                </div>
-                <div class="form-group">
-                    <label>
-                        <input type="checkbox" id="testEML">
-                        Test EML Light
-                    </label>
-                </div>
-                <div class="form-group">
-                    <label>
-                        <input type="checkbox" id="testEPC">
-                        Test EPC Light
                     </label>
                 </div>
             </section>
@@ -471,48 +357,262 @@
                 </div>
                 <button class="btn-secondary" id="resetClusterRPMLimit">Reset RPM Limit</button>
             </section>
-        </div>
 
-        <div class="page" id="ota-page">
             <section class="card">
-                <h2>OTA Firmware Update</h2>
-                <div class="status-item" style="margin-bottom: 1rem;">
-                    <div class="status-label">Firmware Version</div>
-                    <div class="status-value" id="fwVersionOta">FW: --</div>
-                </div>
-                <p>Select a compiled firmware <code>.bin</code> file and upload it over WiFi. The device will reboot automatically.</p>
+                <h2>Coolant Gauge Output</h2>
+                <p style="margin-top: 0; color: var(--text-dim);">
+                    Drive the MK2 coolant temperature gauge from one of the ULN2003 outputs
+                    (EML or EPC). Selecting an output here takes exclusive ownership of that
+                    pin &mdash; any Shift Light or DSG Park use of the same pin is cleared.
+                </p>
                 <div class="input-group">
-                    <label>Firmware Binary (.bin)</label>
-                    <input type="file" id="otaBinFile" accept=".bin,application/octet-stream">
+                    <label>Coolant Output</label>
+                    <select id="coolantOutput">
+                        <option value="Off">Off</option>
+                        <option value="EML">EML</option>
+                        <option value="EPC">EPC</option>
+                    </select>
                 </div>
-                <button class="btn-secondary" id="otaUploadBtn">Upload Firmware</button>
-                <progress id="otaProgress" max="100" value="0" class="ota-progress"></progress>
-                <div class="status-item" style="margin-top: 1rem;">
-                    <div class="status-label">Status</div>
-                    <div class="status-value" id="otaStatus">Idle</div>
+                <div class="input-group" style="margin-top: 1rem;">
+                    <label>Warning Temperature: <span id="coolantWarnTemp-display">120</span> &deg;C</label>
+                    <input type="range" id="coolantWarnTemp" min="0" max="140" step="1" value="120" class="slider">
+                    <small style="color: var(--text-dim);">Idiot-light mode: at or above this coolant temperature the gauge is pegged and the cluster warning light is triggered. Below it the output stays off.</small>
+                </div>
+                <div class="live-data-grid" style="margin-top: 1rem;">
+                    <div class="live-data-item">
+                        <div class="live-data-label">Coolant Temp (CAN)</div>
+                        <div class="live-data-value" id="liveCoolantTemp">--</div>
+                    </div>
+                    <div class="live-data-item">
+                        <div class="live-data-label">Applied Duty</div>
+                        <div class="live-data-value" id="liveCoolantDuty">--</div>
+                    </div>
                 </div>
             </section>
 
             <section class="card">
-                <h2>OTA Filesystem Update</h2>
-                <p>Select a compiled LittleFS <code>.bin</code> to update the web UI and configuration files. The device will reboot automatically.</p>
+                <h2>Calibration Builder</h2>
+                <p class="hint">
+                    Enable Calibration Mode to drive the gauge directly. Jog the duty until the
+                    needle sits at a known temperature, choose that temperature below and click
+                    Capture. Runtime interpolates duty from the live CAN coolant temperature.
+                </p>
+
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="coolantCalMode">
+                        Enable Calibration Mode
+                    </label>
+                </div>
+
+                <div class="cal-duty-readout">
+                    <div class="cal-duty-value"><span id="coolantDutyNow">0</span> <small>/ 1023</small></div>
+                    <div class="cal-duty-sub"><span id="coolantDutyPct">0.0</span>% duty</div>
+                </div>
+
+                <div class="stepper-row">
+                    <button class="stepper-btn coarse" data-jog="-50">&minus;50</button>
+                    <button class="stepper-btn" data-jog="-10">&minus;10</button>
+                    <button class="stepper-btn fine" data-jog="-1">&minus;1</button>
+                    <button class="stepper-btn fine" data-jog="1">+1</button>
+                    <button class="stepper-btn" data-jog="10">+10</button>
+                    <button class="stepper-btn coarse" data-jog="50">+50</button>
+                </div>
+
+                <div class="input-group" style="margin-top:1rem;">
+                    <label>Target temperature for this point (&deg;C)</label>
+                    <div class="chip-grid" id="coolantTargetChips"></div>
+                    <input type="number" id="coolantTargetTemp" min="-40" max="215" step="1" value="90"
+                           style="margin-top:0.75rem;">
+                </div>
+
+                <button class="btn-secondary" id="coolantCaptureBtn">&#65291; Capture Point (<span id="coolantCaptureTemp">90</span>&deg;C @ <span id="coolantCaptureDuty">0</span>)</button>
+
+                <h3 class="cal-subhead">Captured Points</h3>
+                <div class="cal-points" id="coolantPointsList">
+                    <p class="hint">No points captured yet.</p>
+                </div>
+
+                <div class="cal-action-grid">
+                    <button class="btn-secondary" id="coolantClearBtn">Clear All</button>
+                </div>
+            </section>
+
+            <section class="card">
+                <h2>Calibration Curve</h2>
+                <div class="cal-graph-wrap">
+                    <canvas id="coolantCurveCanvas" class="cal-graph" width="600" height="320"></canvas>
+                </div>
+                <div class="cal-graph-legend">
+                    <span><i class="legend-swatch legend-curve"></i>Calibration curve</span>
+                    <span><i class="legend-swatch legend-point"></i>Captured points</span>
+                    <span><i class="legend-swatch legend-live"></i>Live operating point</span>
+                </div>
+            </section>
+        </div>
+
+        <div class="page" id="diag-page">
+            <section class="card">
+                <h2>Live Data - All Inputs</h2>
+                <div class="live-data-grid">
+                    <div class="live-data-item">
+                        <div class="live-data-label">RPM</div>
+                        <div class="live-data-value" id="liveRPM">--</div>
+                    </div>
+                    <div class="live-data-item">
+                        <div class="live-data-label">Hall RPM</div>
+                        <div class="live-data-value" id="liveHallRPM">--</div>
+                    </div>
+                    <div class="live-data-item">
+                        <div class="live-data-label">CAN RPM</div>
+                        <div class="live-data-value" id="liveCANRPM">--</div>
+                    </div>
+                    <div class="live-data-item">
+                        <div class="live-data-label">Hall Speed</div>
+                        <div class="live-data-value" id="liveHallSpeed">--</div>
+                    </div>
+                    <div class="live-data-item">
+                        <div class="live-data-label">ECU Speed</div>
+                        <div class="live-data-value" id="liveECUSpeed">--</div>
+                    </div>
+                    <div class="live-data-item">
+                        <div class="live-data-label">ABS Speed</div>
+                        <div class="live-data-value" id="liveABSSpeed">--</div>
+                    </div>
+                    <div class="live-data-item">
+                        <div class="live-data-label">DSG Speed</div>
+                        <div class="live-data-value" id="liveDSGSpeed">--</div>
+                    </div>
+                    <div class="live-data-item">
+                        <div class="live-data-label">TP2.0/UDS Speed</div>
+                        <div class="live-data-value" id="liveUDSSpeed">--</div>
+                    </div>
+                    <div class="live-data-item">
+                        <div class="live-data-label">GPS Speed</div>
+                        <div class="live-data-value" id="liveGPSSpeed">--</div>
+                    </div>
+                    <div class="live-data-item">
+                        <div class="live-data-label">Custom CAN Speed</div>
+                        <div class="live-data-value" id="liveAftermarketSpeed">--</div>
+                    </div>
+                    <div class="live-data-item">
+                        <div class="live-data-label">GPS Status</div>
+                        <div class="live-data-value" id="liveGPSStatus">--</div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="card">
+                <h2>Speed Output Test</h2>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="testSpeedo">
+                        Enable Speed Test
+                    </label>
+                </div>
                 <div class="input-group">
-                    <label>Filesystem Binary (.bin)</label>
-                    <input type="file" id="otaFsBinFile" accept=".bin,application/octet-stream">
+                    <label>Test Speed Value: <span id="tempSpeed-display" style="transition: background-color 0.3s;">0</span> <span id="tempSpeed-unit">KMH</span></label>
+                    <input type="range" id="tempSpeed" min="0" max="200" value="0" class="slider">
                 </div>
-                <button class="btn-secondary" id="otaFsUploadBtn">Upload Filesystem</button>
-                <progress id="otaFsProgress" max="100" value="0" class="ota-progress"></progress>
-                <div class="status-item" style="margin-top: 1rem;">
-                    <div class="status-label">Status</div>
-                    <div class="status-value" id="otaFsStatus">Idle</div>
+            </section>
+
+            <section class="card">
+                <h2>RPM Output Test</h2>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="testRPM">
+                        Enable RPM Test
+                    </label>
                 </div>
+                <div class="input-group">
+                    <label>Test RPM Value: <span id="tempRPM-display" style="transition: background-color 0.3s;">0</span> RPM</label>
+                    <input type="range" id="tempRPM" min="0" max="8000" value="0" class="slider">
+                </div>
+            </section>
+
+            <section class="card">
+                <h2>Output Tests</h2>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="testReverse">
+                        Test Reverse Output
+                    </label>
+                </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="testEML">
+                        Test EML Light
+                    </label>
+                </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="testEPC">
+                        Test EPC Light
+                    </label>
+                </div>
+            </section>
+
+            <section class="card">
+                <h2>Diagnostic Mode</h2>
+                <p style="margin-top: 0; color: #b00020;">
+                    When enabled, all normal speed/RPM/output processing is bypassed and the
+                    device cycles every output (RPM, Speed, EML, EPC, Reverse, Park) as a
+                    bench test. Setting is persisted &mdash; disable before driving!
+                </p>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="diagTest">
+                        Enable Diagnostic Output Test
+                    </label>
+                </div>
+            </section>
+        </div>
+
+        <div class="page" id="ota-page">
+            <section class="card centered-card">
+                <h2>Firmware Info</h2>
+                <div class="info-box">
+                    <p><strong>Firmware Version:</strong> <span id="otaFwVersion">--</span></p>
+                    <p><strong>Hardware:</strong> <span id="otaHardware">--</span></p>
+                    <p><strong>Board:</strong> <span id="otaBoard">--</span></p>
+                </div>
+            </section>
+            <section class="card centered-card">
+                <h2>OTA Update</h2>
+                <div class="info-box" style="margin-bottom:1rem">
+                    <p><strong>Firmware</strong> updates the application (compiled <strong>firmware.bin</strong>).</p>
+                    <p><strong>Filesystem</strong> updates the web interface (<strong>littlefs.bin</strong>).</p>
+                    <p>The device reboots automatically once the upload completes.</p>
+                </div>
+                <div class="input-group">
+                    <label>Update Type</label>
+                    <select id="otaType">
+                        <option value="firmware">Firmware (application)</option>
+                        <option value="filesystem">Filesystem (web UI)</option>
+                    </select>
+                </div>
+                <div class="ota-upload-area" id="otaDropZone">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    <p>Drag &amp; drop a <strong>.bin</strong> file here, or</p>
+                    <button class="btn-secondary" id="otaChooseBtn" type="button">Choose File</button>
+                    <p id="otaFileName" class="ota-file-name"></p>
+                    <input type="file" id="otaFile" accept=".bin" style="display:none">
+                </div>
+                <div class="ota-progress" id="otaProgressWrap" style="display:none">
+                    <div class="ota-progress-bar" id="otaProgressBar"></div>
+                    <div class="ota-progress-label" id="otaProgressLabel">0%</div>
+                </div>
+                <div class="button-group" style="margin-top:1rem">
+                    <button class="btn-primary" id="otaUploadBtn" disabled>Upload Firmware</button>
+                </div>
+                <div class="ota-status" id="otaStatus"></div>
             </section>
         </div>
 
 
     </div>
 
-    <script src="app.js?v=3.01"></script>
+    <script src="app.js?v=3.20"></script>
 </body>
 
 </html>

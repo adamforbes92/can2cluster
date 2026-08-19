@@ -1,4 +1,4 @@
-#include "can2cluster_can.h"
+  #include "can2cluster_can.h"
 #include "can2cluster_uds.h"
 #include "can2cluster_savvycan.h"
 
@@ -144,6 +144,13 @@ void onBodyRX(const twai_message_t &frame)
     ecuSpeed = (frame.data[3] * 100 * 128) / 10000;
     break;
 
+  case MOTOR3_ID:
+    // Coolant temperature source. TODO(user): confirm the CAN ID, byte index
+    // and scaling for your vehicle — this is a placeholder using the VW-style
+    // "raw byte 0 minus 40 = degrees C" convention, mirroring how RPM is fixed.
+    vehicleCoolantTemp = frame.data[0] - 40;
+    break;
+
   case MOTOR5_ID:
     // set EML & EPC based on the bit read (LSB, so backwards)
     vehicleEML = bitRead(frame.data[1], 5);
@@ -247,6 +254,98 @@ void onBodyRX(const twai_message_t &frame)
     vehicleEML = (frame.data[4] >> 6) & 0x03;
     vehicleCoolantTemp = (frame.data[0] & 0xFF) - 40;
     break;
+
+  case MOTOR_12:
+  {
+    // MQB Motor_12 (0x0A8) - SG_ MO_Drehzahl_01 : 48|16@1+ (0.25,0) [0|16383] "Unit_MinutInver"
+    // i.e. engine speed (Drehzahl = revs) in RPM, factor 0.25/bit, 16-bit LE, bytes 6+7.
+    const uint16_t mo_drehzahl_raw = ((uint16_t)frame.data[7] << 8) | frame.data[6];
+    vehicleRPMCAN = (uint16_t)(mo_drehzahl_raw * 0.25f + 0.5f);
+    break;
+  }
+
+  case MOTOR_07:
+  {
+    // MQB Motor_07 (0x640) - SG_ MO_Kuehlmitteltemp : 24|8@1+ (0.75,-48) "degC"  -> byte 3, coolant temperature
+    const int16_t coolant_c = (int16_t)(frame.data[3] * 0.75f - 48.0f + 0.5f);
+    vehicleCoolantTemp = (coolant_c > 0) ? (uint8_t)coolant_c : 0;
+    break;
+  }
+
+  case MOTOR_18:
+  {
+    // MQB Motor_18 (0x670) - SG_ MO_EPCL : 13|3@1+  -> byte 1 bits 5..7, EPC lamp request (0 = off, >0 = lamp/text variants)
+    // MQB has no engine MIL (EML) broadcast on FCAN - the check-engine
+    // lamp is driven via the OBD/diagnostic path only, so vehicleEML has no MQB source.
+    vehicleEPC = ((frame.data[1] >> 5) & 0x07) != 0;
+    break;
+  }
+
+  case ESP_19:
+  {
+    // MQB ESP_19 (0x0B2) - per-wheel ABS speeds broadcast.
+    // MQB FCAN K-matrix: four 16-bit LE wheel speeds (HL/HR/VL/VR) with
+    // factor 0.0075 km/h per bit each.
+    //   HL = Hinten Links  (rear left)   -> bytes 0..1
+    //   HR = Hinten Rechts (rear right)  -> bytes 2..3
+    //   VL = Vorne  Links  (front left)  -> bytes 4..5
+    //   VR = Vorne  Rechts (front right) -> bytes 6..7
+    // Average all four for a stable vehicle speed (ABS speed source).
+    const uint16_t wheel_speed_hl_raw = (frame.data[1] << 8) | frame.data[0];
+    const uint16_t wheel_speed_hr_raw = (frame.data[3] << 8) | frame.data[2];
+    const uint16_t wheel_speed_vl_raw = (frame.data[5] << 8) | frame.data[4];
+    const uint16_t wheel_speed_vr_raw = (frame.data[7] << 8) | frame.data[6];
+    absSpeed = (wheel_speed_hl_raw + wheel_speed_hr_raw + wheel_speed_vl_raw + wheel_speed_vr_raw) * (0.0075 / 4.0);
+    break;
+  }
+
+  case ESP_21:
+  {
+    // MQB ESP_21 (0x0FD) - ESP/ASR mode + reference speed.
+    // MQB FCAN K-matrix:
+    //   SG_ ESP_v_Signal : 16@1+ (0.01,0) "km/h"  -> bytes 4..5 LE, vehicle reference speed
+    // Mapped to the ECU speed source so MQB works with either speed selection.
+    ecuSpeed = (((uint16_t)frame.data[5] << 8) | frame.data[4]) * 0.01;
+    break;
+  }
+
+  case GETRIEBE_11:
+  {
+    // MQB Getriebe_11 (0x0AD) - DSG status broadcast.
+    //   SG_ GE_Fahrstufe : 42|4@1+  -> byte 5 bits 2..5, gear-lever position
+    // Values: 0=init, 5=P, 6=R, 7=N, 8=D, 9=S, 13=tiptronic.
+    // Verified against OpenHaldex MQB log "gears all inc tip and sport.csv".
+    const uint8_t fahrstufe = (frame.data[5] >> 2) & 0x0F;
+    switch (fahrstufe)
+    {
+    case MQB_FAHRSTUFE_P:
+      vehiclePark = true;
+      vehicleReverse = false;
+      vehicleNeutral = false;
+      break;
+    case MQB_FAHRSTUFE_R:
+      vehiclePark = false;
+      vehicleReverse = true;
+      vehicleNeutral = false;
+      break;
+    case MQB_FAHRSTUFE_N:
+      vehiclePark = false;
+      vehicleReverse = false;
+      vehicleNeutral = true;
+      break;
+    case MQB_FAHRSTUFE_D:
+    case MQB_FAHRSTUFE_S:
+    case MQB_FAHRSTUFE_TIP:
+      vehiclePark = false;
+      vehicleReverse = false;
+      vehicleNeutral = false;
+      break;
+    default:
+      // init / unknown - leave current state untouched
+      break;
+    }
+    break;
+  }
 
   default:
     // do nothing...

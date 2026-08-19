@@ -425,7 +425,10 @@ void parseGPS(void *args)
       gpsFreqWindowStart = now;
     }
 
-    if (useGPS && ((millis() - lastGPSData) > 10000))
+    // No GPS serial for 10s => no module fitted (Not Available). Detected
+    // regardless of useGPS so the status reflects the physical module, not
+    // whether GPS is the selected speed source.
+    if ((millis() - lastGPSData) > 10000)
     {
       gpsUnavailable = true;
       gpsError = true;

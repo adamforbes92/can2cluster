@@ -113,6 +113,17 @@ bool testEPC = false;
 bool testReverse = false;
 String dsgParkMode = "None";  // DSG Park behavior: "None", "EML", or "EPC"
 
+// Coolant temperature gauge
+uint8_t coolantOutput = 0;       // 0=Off, 1=EML pin, 2=EPC pin
+uint32_t coolantPwmFreq = 10000; // Hz (fixed PWM carrier)
+uint8_t coolantWarnTemp = 120;   // deg C idiot-light threshold
+uint8_t coolantCalCount = 0;
+int16_t coolantCalTemp[COOLANT_CAL_MAX] = {0};
+uint16_t coolantCalDuty[COOLANT_CAL_MAX] = {0};
+bool coolantCalMode = false;
+uint16_t coolantCalDutyNow = 0;
+uint16_t coolantAppliedDuty = 0;
+
 // Blink state tracking for non-blocking LED operations
 BlinkState blinkState = {
   false,      // active
