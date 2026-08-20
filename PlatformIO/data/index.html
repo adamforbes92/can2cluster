@@ -278,6 +278,7 @@
                     <label>Primary Speed Input</label>
                     <select id="speedSource">
                         <option value="Hall">Hall</option>
+                        <option value="VR">VR (Variable Reluctance)</option>
                         <option value="ECU">ECU</option>
                         <option value="ABS">ABS</option>
                         <option value="DSG">DSG</option>
@@ -292,11 +293,16 @@
                     <input type="range" id="maxFreqHall" min="10" max="500" step="5" value="200" class="slider">
                 </div>
                 <button class="btn-secondary" id="resetMaxFreqHall">Reset Hall Frequency</button>
+
+                <div class="input-group" style="margin-top: 1rem;">
+                    <label>Max VR Sensor Frequency: <span id="maxFreqVR-display">200</span> Hz</label>
+                    <input type="range" id="maxFreqVR" min="10" max="500" step="5" value="200" class="slider">
+                </div>
+                <button class="btn-secondary" id="resetMaxFreqVR">Reset VR Frequency</button>
             </section>
 
             <section class="card" id="customCANInputCard" style="display:none;">
-                <h2>Custom CAN Input</h2>
-                <div class="input-group">
+                <h2>Custom CAN Input</h2>                <div class="input-group">
                     <label>CAN ID (Hex)</label>
                     <input type="text" id="aftermarketSpeedID" value="200" maxlength="3" placeholder="200">
                 </div>
@@ -332,6 +338,53 @@
                 <div class="live-data-item" style="margin-top: 1rem;">
                     <div class="live-data-label">Parsed Custom CAN Speed</div>
                     <div class="live-data-value" id="liveAftermarketSpeedCard">--</div>
+                </div>
+            </section>
+
+            <section class="card" id="dsgCalcCard" style="display:none;">
+                <h2>DSG Speed Calculation</h2>
+                <p class="hint">Speed = RPM &times; tire circumference &divide; (gear ratio &times; final drive &times; 60). Defaults are DQ250 02E ratios.</p>
+
+                <div class="input-group">
+                    <label>1st Gear Ratio</label>
+                    <input type="number" id="dsgRatio1" step="0.001" min="0.05" value="3.462">
+                </div>
+                <div class="input-group">
+                    <label>2nd Gear Ratio</label>
+                    <input type="number" id="dsgRatio2" step="0.001" min="0.05" value="2.050">
+                </div>
+                <div class="input-group">
+                    <label>3rd Gear Ratio</label>
+                    <input type="number" id="dsgRatio3" step="0.001" min="0.05" value="1.300">
+                </div>
+                <div class="input-group">
+                    <label>4th Gear Ratio</label>
+                    <input type="number" id="dsgRatio4" step="0.001" min="0.05" value="0.902">
+                </div>
+                <div class="input-group">
+                    <label>5th Gear Ratio</label>
+                    <input type="number" id="dsgRatio5" step="0.001" min="0.05" value="0.914">
+                </div>
+                <div class="input-group">
+                    <label>6th Gear Ratio</label>
+                    <input type="number" id="dsgRatio6" step="0.001" min="0.05" value="0.756">
+                </div>
+                <div class="input-group">
+                    <label>Final Drive (Gears 1-4)</label>
+                    <input type="number" id="dsgFinal14" step="0.001" min="0.05" value="4.118">
+                </div>
+                <div class="input-group">
+                    <label>Final Drive (Gears 5-6)</label>
+                    <input type="number" id="dsgFinal56" step="0.001" min="0.05" value="3.043">
+                </div>
+                <div class="input-group">
+                    <label>Tire Circumference (m)</label>
+                    <input type="number" id="dsgTireCirc" step="0.001" min="0.5" max="4" value="1.885">
+                </div>
+
+                <div class="live-data-item" style="margin-top: 1rem;">
+                    <div class="live-data-label">Calculated DSG Speed</div>
+                    <div class="live-data-value" id="liveDSGSpeedCard">--</div>
                 </div>
             </section>
 
@@ -406,7 +459,7 @@
                 </div>
 
                 <div class="cal-duty-readout">
-                    <div class="cal-duty-value"><span id="coolantDutyNow">0</span> <small>/ 1023</small></div>
+                    <div class="cal-duty-value"><span id="coolantDutyNow">0</span> <small>/ <span id="coolantDutyMax">1023</span></small></div>
                     <div class="cal-duty-sub"><span id="coolantDutyPct">0.0</span>% duty</div>
                 </div>
 
@@ -453,6 +506,41 @@
 
         <div class="page" id="diag-page">
             <section class="card">
+                <h2>Board &amp; I2C Diagnostics</h2>
+                <p style="margin-top: 0; color: var(--text-dim);">
+                    Board revision is auto-detected (GPIO32 grounded = new board). On the new
+                    board the coolant gauge (MCP4725 DAC), and Reverse/EPC/EML plus the DSG
+                    paddles (TCA9554 expander) all run over I2C.
+                </p>
+                <div class="live-data-grid">
+                    <div class="live-data-item">
+                        <div class="live-data-label">Board</div>
+                        <div class="live-data-value" id="liveBoard">--</div>
+                    </div>
+                    <div class="live-data-item">
+                        <div class="live-data-label">MCP4725 (0x60)</div>
+                        <div class="live-data-value" id="liveMcp4725">--</div>
+                    </div>
+                    <div class="live-data-item">
+                        <div class="live-data-label">TCA9554 (0x20)</div>
+                        <div class="live-data-value" id="liveTca9554">--</div>
+                    </div>
+                    <div class="live-data-item">
+                        <div class="live-data-label">Coolant DAC</div>
+                        <div class="live-data-value" id="liveCoolantDac">--</div>
+                    </div>
+                    <div class="live-data-item">
+                        <div class="live-data-label">TCA Inputs</div>
+                        <div class="live-data-value" id="liveTcaInputs">--</div>
+                    </div>
+                    <div class="live-data-item">
+                        <div class="live-data-label">TCA INT Count</div>
+                        <div class="live-data-value" id="liveTcaInt">--</div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="card">
                 <h2>Live Data - All Inputs</h2>
                 <div class="live-data-grid">
                     <div class="live-data-item">
@@ -472,6 +560,10 @@
                         <div class="live-data-value" id="liveHallSpeed">--</div>
                     </div>
                     <div class="live-data-item">
+                        <div class="live-data-label">VR Speed</div>
+                        <div class="live-data-value" id="liveVRSpeed">--</div>
+                    </div>
+                    <div class="live-data-item">
                         <div class="live-data-label">ECU Speed</div>
                         <div class="live-data-value" id="liveECUSpeed">--</div>
                     </div>
@@ -484,7 +576,11 @@
                         <div class="live-data-value" id="liveDSGSpeed">--</div>
                     </div>
                     <div class="live-data-item">
-                        <div class="live-data-label">TP2.0/UDS Speed</div>
+                        <div class="live-data-label">TP2.0 Speed</div>
+                        <div class="live-data-value" id="liveTP20Speed">--</div>
+                    </div>
+                    <div class="live-data-item">
+                        <div class="live-data-label">UDS Speed</div>
                         <div class="live-data-value" id="liveUDSSpeed">--</div>
                     </div>
                     <div class="live-data-item">

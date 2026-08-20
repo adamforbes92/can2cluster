@@ -9,6 +9,7 @@ void readEEP() {
   if (!pref.isKey("useHall")) {
     DEBUG_EEP("First run...");
     pref.putBool("useHall", useHall);
+    pref.putBool("useVR", useVR);
     pref.putBool("useECU", useECU);
     pref.putBool("useDSG", useDSG);
     pref.putBool("useGPS", useGPS);
@@ -33,6 +34,7 @@ void readEEP() {
     pref.putUShort("maxSpeed", maxSpeed);
     pref.putUShort("maxRPM", maxRPM);
     pref.putUShort("maxFreqHall", maxFreqHall);
+    pref.putUShort("maxFreqVR", maxFreqVR);
 
     pref.putUShort("stepRPM", stepRPM);
     pref.putUShort("stepSpeed", stepSpeed);
@@ -63,6 +65,14 @@ void readEEP() {
     pref.putFloat("amSpeedScale", aftermarketSpeedScale);
     pref.putShort("amSpeedOffset", aftermarketSpeedOffset);
 
+    for (uint8_t i = 1; i <= 6; i++) {
+      String ratioKey = "dsgRatio" + String(i);
+      pref.putFloat(ratioKey.c_str(), dsgGearRatio[i]);
+    }
+    pref.putFloat("dsgFinal14", dsgFinalDrive14);
+    pref.putFloat("dsgFinal56", dsgFinalDrive56);
+    pref.putFloat("dsgTireCirc", dsgTireCirc);
+
     pref.putUChar("coolOut", coolantOutput);
     pref.putUInt("coolFreq", coolantPwmFreq);
     pref.putUChar("coolWarn", coolantWarnTemp);
@@ -73,6 +83,7 @@ void readEEP() {
   } else {
 
     useHall = pref.getBool("useHall", true);
+    useVR = pref.getBool("useVR", false);
     useECU = pref.getBool("useECU", false);
     useDSG = pref.getBool("useDSG", false);
     useGPS = pref.getBool("useGPS", false);
@@ -100,6 +111,7 @@ void readEEP() {
     maxSpeed = pref.getUShort("maxSpeed", 200);
     maxRPM = pref.getUShort("maxRPM", 230);
     maxFreqHall = pref.getUShort("maxFreqHall", 200);
+    maxFreqVR = pref.getUShort("maxFreqVR", 200);
 
     stepRPM = pref.getUShort("stepRPM", 12);
     stepSpeed = pref.getUShort("stepSpeed", 10);
@@ -135,6 +147,15 @@ void readEEP() {
     aftermarketSpeedLittleEndian = pref.getBool("amSpeedLE", true);
     aftermarketSpeedScale = pref.getFloat("amSpeedScale", 1.0f);
     aftermarketSpeedOffset = pref.getShort("amSpeedOffset", 0);
+
+    for (uint8_t i = 1; i <= 6; i++) {
+      String ratioKey = "dsgRatio" + String(i);
+      float loaded = pref.getFloat(ratioKey.c_str(), dsgGearRatio[i]);
+      if (loaded > 0.0f) dsgGearRatio[i] = loaded;
+    }
+    dsgFinalDrive14 = pref.getFloat("dsgFinal14", dsgFinalDrive14);
+    dsgFinalDrive56 = pref.getFloat("dsgFinal56", dsgFinalDrive56);
+    dsgTireCirc = pref.getFloat("dsgTireCirc", dsgTireCirc);
 
     coolantOutput = pref.getUChar("coolOut", 0);
     coolantPwmFreq = pref.getUInt("coolFreq", 10000);
@@ -192,6 +213,7 @@ void writeEEP(void *args) {
     DEBUG_EEP("Writing EEPROM...");
 
     pref.putBool("useHall", useHall);
+    pref.putBool("useVR", useVR);
     pref.putBool("useECU", useECU);
     pref.putBool("useDSG", useDSG);
     pref.putBool("useGPS", useGPS);
@@ -216,6 +238,7 @@ void writeEEP(void *args) {
     pref.putUShort("maxSpeed", maxSpeed);
     pref.putUShort("maxRPM", maxRPM);
     pref.putUShort("maxFreqHall", maxFreqHall);
+    pref.putUShort("maxFreqVR", maxFreqVR);
 
     pref.putUShort("stepRPM", stepRPM);
     pref.putUShort("stepSpeed", stepSpeed);
@@ -245,6 +268,14 @@ void writeEEP(void *args) {
     pref.putBool("amSpeedLE", aftermarketSpeedLittleEndian);
     pref.putFloat("amSpeedScale", aftermarketSpeedScale);
     pref.putShort("amSpeedOffset", aftermarketSpeedOffset);
+
+    for (uint8_t i = 1; i <= 6; i++) {
+      String ratioKey = "dsgRatio" + String(i);
+      pref.putFloat(ratioKey.c_str(), dsgGearRatio[i]);
+    }
+    pref.putFloat("dsgFinal14", dsgFinalDrive14);
+    pref.putFloat("dsgFinal56", dsgFinalDrive56);
+    pref.putFloat("dsgTireCirc", dsgTireCirc);
 
     pref.putUChar("coolOut", coolantOutput);
     pref.putUInt("coolFreq", coolantPwmFreq);

@@ -1,10 +1,16 @@
 #include "can2cluster_buttons.h"
+#include "can2cluster_i2c.h"
 
 static unsigned long padUpPressTime = 0;
 static unsigned long padDownPressTime = 0;
 #define PADDLE_FEEDBACK_DURATION 2000  // milliseconds
 
 void updateButtons(void) {
+  // New board: paddles are on the TCA9554 (polled, with INT for awareness).
+  if (isNewBoard) {
+    tcaPollPaddles();
+    return;
+  }
   btnPadUp.tick();
   btnPadDown.tick();
 }

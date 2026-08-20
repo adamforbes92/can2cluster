@@ -1,6 +1,7 @@
 #include "can2cluster_wifi.h"
 #include "can2cluster_savvycan.h"
 #include "can2cluster_gps.h"
+#include "can2cluster_i2c.h"
 #include "power_manager.h"
 #include <ArduinoJson.h>
 #include <LittleFS.h>
@@ -156,6 +157,33 @@ static bool handleAftermarketControl(const String &key, JsonVariant value)
   return false;
 }
 
+static bool handleDsgCalcControl(const String &key, JsonVariant value)
+{
+  for (uint8_t i = 1; i <= 6; i++) {
+    if (key == "dsgRatio" + String(i)) {
+      float v = value.as<float>();
+      if (v > 0.0f) dsgGearRatio[i] = v;
+      return true;
+    }
+  }
+  if (key == "dsgFinal14") {
+    float v = value.as<float>();
+    if (v > 0.0f) dsgFinalDrive14 = v;
+    return true;
+  }
+  if (key == "dsgFinal56") {
+    float v = value.as<float>();
+    if (v > 0.0f) dsgFinalDrive56 = v;
+    return true;
+  }
+  if (key == "dsgTireCirc") {
+    float v = value.as<float>();
+    if (v > 0.0f) dsgTireCirc = v;
+    return true;
+  }
+  return false;
+}
+
 static bool handleTestAction(const String &action)
 {
   if (action == "needleSweep")
@@ -238,7 +266,7 @@ static void sendCoolantCalState(AsyncWebServerRequest *request)
   doc["freq"] = coolantPwmFreq;
   doc["calMode"] = coolantCalMode;
   doc["duty"] = coolantCalDutyNow;
-  doc["maxDuty"] = 1023;
+  doc["maxDuty"] = coolantMaxOut();
   doc["appliedDuty"] = coolantAppliedDuty;
   doc["temp"] = vehicleCoolantTemp;
   doc["count"] = coolantCalCount;
@@ -313,8 +341,18 @@ void setupWebRoutes()
     doc["aftermarketSpeedScale"] = aftermarketSpeedScale;
     doc["aftermarketSpeedOffset"] = aftermarketSpeedOffset;
 
+    // DSG speed calculation (RPM & gear -> speed)
+    for (uint8_t i = 1; i <= 6; i++) {
+      String ratioKey = "dsgRatio" + String(i);
+      doc[ratioKey] = dsgGearRatio[i];
+    }
+    doc["dsgFinal14"] = dsgFinalDrive14;
+    doc["dsgFinal56"] = dsgFinalDrive56;
+    doc["dsgTireCirc"] = dsgTireCirc;
+
     // Speed type selection
     if (useHall) doc["speedType"] = "Hall";
+    else if (useVR) doc["speedType"] = "VR";
     else if (useECU) doc["speedType"] = "ECU";
     else if (useABS) doc["speedType"] = "ABS";
     else if (useDSG) doc["speedType"] = "DSG";
@@ -328,6 +366,7 @@ void setupWebRoutes()
     doc["clusterFrequencyLimit"] = maxRPM;
     doc["clusterRPMLimit"] = clusterRPMLimit;
     doc["maxFreqHall"] = maxFreqHall;
+    doc["maxFreqVR"] = maxFreqVR;
     doc["gpsUpdateRateHz"] = gpsUpdateRateHz;
     
     // Diagnostic query status
@@ -347,6 +386,7 @@ void setupWebRoutes()
     doc["gpsFrequency"] = getGPSUpdateFrequency();
     doc["gpsAutoApplySecs"] = gpsAutoApplySecondsRemaining();
     doc["hallSpeed"] = hallSpeed;
+    doc["vrSpeed"] = vrSpeed;
     doc["ecuSpeed"] = ecuSpeed;
     doc["absSpeed"] = absSpeed;
     doc["dsgSpeed"] = dsgSpeed;
@@ -387,6 +427,16 @@ void setupWebRoutes()
     doc["coolantDuty"] = coolantAppliedDuty;
     doc["coolantCalMode"] = coolantCalMode;
     doc["coolantOutputActive"] = (coolantOutput != 0);
+
+    // Board revision + I2C peripheral diagnostics
+    JsonObject i2c = doc["i2c"].to<JsonObject>();
+    i2c["board"] = isNewBoard ? "new" : "old";
+    i2c["newBoard"] = isNewBoard;
+    i2c["mcp4725"] = i2cMcpPresent;
+    i2c["tca9554"] = i2cTcaPresent;
+    i2c["tcaInputs"] = tcaInputShadow;
+    i2c["tcaIntCount"] = (uint32_t)tcaIntCount;
+    i2c["coolantDac"] = coolantAppliedDuty;
     
     /*
      Settings
@@ -411,6 +461,7 @@ void setupWebRoutes()
     
     // Speed type selection
     if (useHall) doc["speedType"] = "Hall";
+    else if (useVR) doc["speedType"] = "VR";
     else if (useECU) doc["speedType"] = "ECU";
     else if (useABS) doc["speedType"] = "ABS";
     else if (useDSG) doc["speedType"] = "DSG";
@@ -460,6 +511,11 @@ void setupWebRoutes()
     }
 
     if (handleAftermarketControl(key, value)) {
+      request->send(200, "application/json", "{\"ok\":true}");
+      return;
+    }
+
+    if (handleDsgCalcControl(key, value)) {
       request->send(200, "application/json", "{\"ok\":true}");
       return;
     }
@@ -546,6 +602,7 @@ void setupWebRoutes()
     if (key == "speedType") {
       String st = value.as<const char*>();
       useHall       = st == "Hall";
+      useVR         = st == "VR";
       useECU        = st == "ECU";
       useDSG        = st == "DSG";
       useABS        = st == "ABS";
@@ -571,6 +628,11 @@ void setupWebRoutes()
 
     if (key == "maxFreqHall") {
       maxFreqHall = value.as<int>();
+      settingApplied = true;
+    }
+
+    if (key == "maxFreqVR") {
+      maxFreqVR = value.as<int>();
       settingApplied = true;
     }
 
@@ -619,10 +681,10 @@ void setupWebRoutes()
       coolantCalMode = false;
     } else if (op == "jog") {
       long d = (long)coolantCalDutyNow + (int)(doc["delta"] | 0);
-      coolantCalDutyNow = (uint16_t)constrain(d, 0L, 1023L);
+      coolantCalDutyNow = (uint16_t)constrain(d, 0L, (long)coolantMaxOut());
       coolantCalMode = true;
     } else if (op == "setDuty") {
-      coolantCalDutyNow = (uint16_t)constrain((int)(doc["duty"] | 0), 0, 1023);
+      coolantCalDutyNow = (uint16_t)constrain((int)(doc["duty"] | 0), 0, (int)coolantMaxOut());
       coolantCalMode = true;
     } else if (op == "addPoint") {
       int16_t t = (int16_t)(doc["temp"] | 0);

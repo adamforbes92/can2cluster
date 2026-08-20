@@ -115,6 +115,8 @@ function initControls() {
     'broadcastSpeedData4', 'broadcastSpeedData5', 'broadcastSpeedData6', 'broadcastSpeedData7',
     'aftermarketSpeedID', 'aftermarketSpeedLowByte', 'aftermarketSpeedHighByte',
     'aftermarketSpeedLittleEndian', 'aftermarketSpeedScale', 'aftermarketSpeedOffset',
+    'dsgRatio1', 'dsgRatio2', 'dsgRatio3', 'dsgRatio4', 'dsgRatio5', 'dsgRatio6',
+    'dsgFinal14', 'dsgFinal56', 'dsgTireCirc',
     'testReverse', 'testEML', 'testEPC', 'diagTest'
   ];
   advancedInputs.forEach(id => {
@@ -169,6 +171,10 @@ function initControls() {
     const card = document.getElementById('customCANInputCard');
     if (card && speedSourceEl) {
       card.style.display = speedSourceEl.value === 'Custom CAN' ? '' : 'none';
+    }
+    const dsgCard = document.getElementById('dsgCalcCard');
+    if (dsgCard && speedSourceEl) {
+      dsgCard.style.display = speedSourceEl.value === 'DSG' ? '' : 'none';
     }
   }
   if (speedSourceEl) {
@@ -247,6 +253,27 @@ function initControls() {
       const displayEl = document.getElementById('maxFreqHall-display');
       if (displayEl) displayEl.textContent = '200';
       pushControl('maxFreqHall', 200);
+    });
+  }
+
+  const maxFreqVREl = document.getElementById('maxFreqVR');
+  if (maxFreqVREl) {
+    maxFreqVREl.addEventListener('change', () => {
+      pushControl('maxFreqVR', Number(maxFreqVREl.value));
+    });
+    maxFreqVREl.addEventListener('input', () => {
+      const displayEl = document.getElementById('maxFreqVR-display');
+      if (displayEl) displayEl.textContent = maxFreqVREl.value;
+    });
+  }
+
+  const resetMaxFreqVRBtn = document.getElementById('resetMaxFreqVR');
+  if (resetMaxFreqVRBtn && maxFreqVREl) {
+    resetMaxFreqVRBtn.addEventListener('click', () => {
+      maxFreqVREl.value = 200;
+      const displayEl = document.getElementById('maxFreqVR-display');
+      if (displayEl) displayEl.textContent = '200';
+      pushControl('maxFreqVR', 200);
     });
   }
 
@@ -340,6 +367,13 @@ async function fetchSettings() {
     document.getElementById('aftermarketSpeedScale').value = (data.aftermarketSpeedScale ?? 1.0).toFixed(3);
     document.getElementById('aftermarketSpeedOffset').value = data.aftermarketSpeedOffset ?? 0;
 
+    // DSG speed calculation settings
+    const dsgDefaults = { dsgRatio1: 3.462, dsgRatio2: 2.050, dsgRatio3: 1.300, dsgRatio4: 0.902, dsgRatio5: 0.914, dsgRatio6: 0.756, dsgFinal14: 4.118, dsgFinal56: 3.043, dsgTireCirc: 1.885 };
+    Object.keys(dsgDefaults).forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = Number(data[id] ?? dsgDefaults[id]).toFixed(3);
+    });
+
     // Test outputs
     document.getElementById('testReverse').checked = data.testReverse || false;
     document.getElementById('testEML').checked = data.testEML || false;
@@ -356,7 +390,8 @@ async function fetchSettings() {
 
     // Speed type dropdown - map speedType to dropdown options
     let speedTypeValue = 'Hall';  // default
-    if (data.speedType === 'ECU') speedTypeValue = 'ECU';
+    if (data.speedType === 'VR') speedTypeValue = 'VR';
+    else if (data.speedType === 'ECU') speedTypeValue = 'ECU';
     else if (data.speedType === 'ABS') speedTypeValue = 'ABS';
     else if (data.speedType === 'DSG') speedTypeValue = 'DSG';
     else if (data.speedType === 'TP2.0-DSG' || data.speedType === 'TP/UDS DSG') speedTypeValue = 'TP2.0-DSG';
@@ -365,6 +400,8 @@ async function fetchSettings() {
     document.getElementById('speedSource').value = speedTypeValue;
     const customCANCard = document.getElementById('customCANInputCard');
     if (customCANCard) customCANCard.style.display = speedTypeValue === 'Custom CAN' ? '' : 'none';
+    const dsgCalcCard = document.getElementById('dsgCalcCard');
+    if (dsgCalcCard) dsgCalcCard.style.display = speedTypeValue === 'DSG' ? '' : 'none';
 
     const rpmTypeValue = data.rpmType === 'Hall' ? 'Hall' : 'CAN';
     document.getElementById('rpmSource').value = rpmTypeValue;
@@ -382,6 +419,13 @@ async function fetchSettings() {
     if (maxFreqHallEl2) {
       maxFreqHallEl2.value = maxFreqHallValue;
       document.getElementById('maxFreqHall-display').textContent = maxFreqHallValue;
+    }
+
+    const maxFreqVRValue = data.maxFreqVR || 200;
+    const maxFreqVREl2 = document.getElementById('maxFreqVR');
+    if (maxFreqVREl2) {
+      maxFreqVREl2.value = maxFreqVRValue;
+      document.getElementById('maxFreqVR-display').textContent = maxFreqVRValue;
     }
 
     if (document.getElementById('gpsRateSelect')) {
@@ -440,6 +484,9 @@ async function fetchStatus() {
     if (document.getElementById('liveHallSpeed')) {
       document.getElementById('liveHallSpeed').textContent = data.hallSpeed || '--';
     }
+    if (document.getElementById('liveVRSpeed')) {
+      document.getElementById('liveVRSpeed').textContent = data.vrSpeed || '--';
+    }
     if (document.getElementById('liveECUSpeed')) {
       document.getElementById('liveECUSpeed').textContent = data.ecuSpeed || '--';
     }
@@ -448,6 +495,12 @@ async function fetchStatus() {
     }
     if (document.getElementById('liveDSGSpeed')) {
       document.getElementById('liveDSGSpeed').textContent = data.dsgSpeed || '--';
+    }
+    if (document.getElementById('liveDSGSpeedCard')) {
+      document.getElementById('liveDSGSpeedCard').textContent = data.dsgSpeed !== undefined ? Number(data.dsgSpeed).toFixed(1) : '--';
+    }
+    if (document.getElementById('liveTP20Speed')) {
+      document.getElementById('liveTP20Speed').textContent = data.tp20Speed || '--';
     }
     if (document.getElementById('liveUDSSpeed')) {
       document.getElementById('liveUDSSpeed').textContent = data.udsSpeed || '--';
@@ -552,6 +605,26 @@ async function fetchStatus() {
     const coolantPageEl = document.getElementById('advanced-page');
     if (coolantPageEl && coolantPageEl.classList.contains('active')) {
       drawCoolantCurve();
+    }
+
+    // Board & I2C diagnostics
+    if (data.i2c) {
+      const i2c = data.i2c;
+      const setTxt = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+      setTxt('liveBoard', i2c.newBoard ? 'New (I2C)' : 'Old (GPIO)');
+      if (i2c.newBoard) {
+        setTxt('liveMcp4725', i2c.mcp4725 ? 'Detected' : 'Missing');
+        setTxt('liveTca9554', i2c.tca9554 ? 'Detected' : 'Missing');
+        setTxt('liveCoolantDac', i2c.coolantDac);
+        setTxt('liveTcaInputs', '0x' + (i2c.tcaInputs || 0).toString(16).padStart(2, '0').toUpperCase());
+        setTxt('liveTcaInt', i2c.tcaIntCount);
+      } else {
+        setTxt('liveMcp4725', 'n/a');
+        setTxt('liveTca9554', 'n/a');
+        setTxt('liveCoolantDac', 'n/a');
+        setTxt('liveTcaInputs', 'n/a');
+        setTxt('liveTcaInt', 'n/a');
+      }
     }
 
   } catch (error) {
@@ -665,11 +738,14 @@ function calPost(payload) {
 function applyCoolantState(s) {
   if (!s) return;
   coolantState = Object.assign(coolantState, s);
+  const maxDuty = coolantState.maxDuty || 1023;
   const duty = s.duty || 0;
   const dutyNow = document.getElementById('coolantDutyNow');
   if (dutyNow) dutyNow.textContent = duty;
+  const dutyMax = document.getElementById('coolantDutyMax');
+  if (dutyMax) dutyMax.textContent = maxDuty;
   const dutyPct = document.getElementById('coolantDutyPct');
-  if (dutyPct) dutyPct.textContent = (duty / 1023 * 100).toFixed(1);
+  if (dutyPct) dutyPct.textContent = (duty / maxDuty * 100).toFixed(1);
   const capDuty = document.getElementById('coolantCaptureDuty');
   if (capDuty) capDuty.textContent = duty;
   const calModeEl = document.getElementById('coolantCalMode');

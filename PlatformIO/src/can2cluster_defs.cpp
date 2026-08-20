@@ -8,6 +8,7 @@ uint8_t sweepSpeed = 18;
 uint16_t maxSpeed = 200;
 uint16_t maxRPM = 230;
 uint16_t maxFreqHall = 200;
+uint16_t maxFreqVR = 200;
 bool useEPCShiftLight = false;
 bool useEMLShiftLight = false;
 
@@ -31,6 +32,7 @@ double dsgSpeed = 0;
 double gpsSpeed = 0;
 double absSpeed = 0;
 double hallSpeed = 0;
+double vrSpeed = 0;
 
 bool rpmTrigger = true;
 bool speedTrigger = true;
@@ -39,11 +41,17 @@ uint8_t gear = 0;
 uint8_t lever = 0;
 uint8_t gear_raw = 0;
 uint8_t lever_raw = 0;
+float dsgGearRatio[7] = {1.0f, 3.462f, 2.050f, 1.300f, 0.902f, 0.914f, 0.756f}; // index 0 unused
+float dsgFinalDrive14 = 4.118f;
+float dsgFinalDrive56 = 3.043f;
+float dsgTireCirc = 1.885f; // PI * 0.6m rolling diameter
 uint32_t lastMillis = 0;
 uint32_t lastMillis2 = 0;
 uint32_t lastCAN = 0;
 volatile unsigned long lastPulse = 0;
 volatile unsigned long dutyCycleIncoming = 0;
+volatile unsigned long lastPulseVR = 0;
+volatile unsigned long dutyCycleIncomingVR = 0;
 volatile unsigned long dutyCycleMotor = 0;
 volatile unsigned long lastPulseRPM = 0;
 
@@ -63,6 +71,7 @@ volatile bool padUpTxPending = false;
 volatile bool padDownTxPending = false;
 
 bool useHall = false;
+bool useVR = false;
 bool useECU = false;
 bool useDSG = false;
 bool useGPS = false;
@@ -123,6 +132,12 @@ uint16_t coolantCalDuty[COOLANT_CAL_MAX] = {0};
 bool coolantCalMode = false;
 uint16_t coolantCalDutyNow = 0;
 uint16_t coolantAppliedDuty = 0;
+
+// Board revision + I2C peripheral state
+bool isNewBoard = false;
+bool i2cMcpPresent = false;
+bool i2cTcaPresent = false;
+uint8_t tcaInputShadow = 0xFF; // paddles idle HIGH (active-low)
 
 // Blink state tracking for non-blocking LED operations
 BlinkState blinkState = {

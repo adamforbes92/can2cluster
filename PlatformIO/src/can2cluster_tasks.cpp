@@ -1,5 +1,6 @@
 #include "can2cluster_io.h"
 #include "can2cluster_uds.h"
+#include "can2cluster_i2c.h"
 
 void setupTasks()
 {
@@ -94,11 +95,14 @@ void showState(void *arg)
 #if serialDebugIO
     DEBUG_IO("Speeds:");
     DEBUG_IO("  hallSpeed: %d", dutyCycleIncoming);
+    DEBUG_IO("  vrSpeed: %d", dutyCycleIncomingVR);
     DEBUG_IO("  ecuSpeed: %d", calcSpeed);
     DEBUG_IO("  dsgSpeed: %d", dsgSpeed);
     DEBUG_IO("  gpsSpeed: %d", gpsSpeed);
     DEBUG_IO("  absSpeed: %d", absSpeed);
 #endif
+
+    i2cSerialDiag();
 
     vTaskDelay(pdMS_TO_TICKS(serialMonitorRefresh));
   }
@@ -126,6 +130,17 @@ void updateSpeed(void *args)
         hallSpeed = map(dutyCycleIncoming, 0, maxFreqHall, 0, maxSpeed);
       }
 
+      // Reset VR speed if no pulse has arrived within durationReset ms
+      if ((millis() + 10 - lastPulseVR) > durationReset)
+      {
+        dutyCycleIncomingVR = 0;
+        vrSpeed = 0;
+      }
+      else
+      {
+        vrSpeed = map(dutyCycleIncomingVR, 0, maxFreqVR, 0, maxSpeed);
+      }
+
       if (testSpeedo)
       {
         vehicleSpeed = tempSpeed;
@@ -136,6 +151,10 @@ void updateSpeed(void *args)
         if (useHall)
         {
           vehicleSpeed = hallSpeed;
+        }
+        if (useVR)
+        {
+          vehicleSpeed = vrSpeed;
         }
         if (useECU)
         {
@@ -265,20 +284,20 @@ void outputControlTask(void *args)
     bool blinkOwnsEPC = blinkState.active && blinkState.boolEPC;
 
     // The coolant gauge (if enabled) owns one of the EML/EPC pins as a PWM
-    // output — skip the digital drive for that pin and let updateCoolantOutput
-    // handle it instead.
-    bool coolantOwnsEML = (coolantOutput == 1);
-    bool coolantOwnsEPC = (coolantOutput == 2);
+    // output on the OLD board — skip the digital drive for that pin and let
+    // updateCoolantOutput handle it. On the new board coolant is a separate DAC.
+    bool coolantOwnsEML = (!isNewBoard && coolantOutput == 1);
+    bool coolantOwnsEPC = (!isNewBoard && coolantOutput == 2);
 
     // Normal EML/EPC drive, unless the pin is owned by the blink sequence, the
     // coolant PWM gauge, or held by a diagnostic test (handled below).
     if (!blinkOwnsEML && !coolantOwnsEML && !testEML)
     {
-      digitalWrite(pinEML, finalEML);
+      driveEML(finalEML);
     }
     if (!blinkOwnsEPC && !coolantOwnsEPC && !testEPC)
     {
-      digitalWrite(pinEPC, finalEPC);
+      driveEPC(finalEPC);
     }
 
     updateCoolantOutput();
@@ -286,12 +305,12 @@ void outputControlTask(void *args)
     // Diagnostic test outputs are a hard override ("direct short") — driven
     // last so they beat the coolant PWM gauge, shift-light blink and DSG park.
     // updateCoolantOutput() releases the LEDC channel on a tested pin so this
-    // plain digitalWrite actually reaches the GPIO.
+    // plain drive actually reaches the output.
     if (testEML)
-      digitalWrite(pinEML, HIGH);
+      driveEML(true);
     if (testEPC)
-      digitalWrite(pinEPC, HIGH);
-    testReverse ? digitalWrite(pinReverse, HIGH) : digitalWrite(pinReverse, vehicleReverse);
+      driveEPC(true);
+    driveReverse(testReverse ? true : vehicleReverse);
 
     vTaskDelay(pdMS_TO_TICKS(10));
   }

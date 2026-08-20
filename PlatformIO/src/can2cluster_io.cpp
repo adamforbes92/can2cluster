@@ -1,5 +1,6 @@
 #include "can2cluster_io.h"
 #include "can2cluster_gps.h"
+#include "can2cluster_i2c.h"
 #include <driver/ledc.h>
 
 // File-scope ISR state — must NOT be function-local statics.
@@ -8,6 +9,7 @@
 // on their first invocation, which asserts inside FreeRTOS when triggered
 // from an ISR context (xQueueSemaphoreTake assert in queue.c).
 static unsigned long hallPreviousMicros = 0;
+static unsigned long vrPreviousMicros   = 0;
 static unsigned long rpmPreviousMicros  = 0;
 
 namespace
@@ -91,11 +93,16 @@ void basicInit()
 // basic initialisation - setup pins for IO & setup CAN for receiving...
 
 // if ANY Serial request is made, begin Serial
-#if serialDebug || serialDebugWifi || serialDebugEEP || serialDebugGPS || ChassisCANDebug || serialDebugPaddles || serialDebugIO || serialDebugDSG || serialDebugCAN
+#if serialDebug || serialDebugWifi || serialDebugEEP || serialDebugGPS || ChassisCANDebug || serialDebugPaddles || serialDebugIO || serialDebugDSG || serialDebugCAN || serialDebugI2C
   Serial.begin(baudSerial);
   delay(500);
 #endif
   DEBUG("[Init] CAN-BUS to Cluster Initialising...");
+
+  // Detect the board revision and bring up the I2C peripherals before anything
+  // reads isNewBoard (pin setup, coolant driver, paddle polling).
+  detectBoard();
+  i2cInit();
 
   DEBUG("[Init] Reading EEPROM...");
   readEEP(); // read EEPROM
@@ -125,13 +132,19 @@ void setupPins()
   pinMode(onboardLED, OUTPUT); // use the built-in LED for displaying errors!
 
   pinMode(pinSpeed, OUTPUT);   // for speed output
-  pinMode(pinEML, OUTPUT);     // for engine management light output
-  pinMode(pinEPC, OUTPUT);     // for electronic pedal control output
-  pinMode(pinReverse, OUTPUT); // for reverse MOSFET output (5A max!)
+  // On the new board EML/EPC/Reverse live on the TCA9554 and GPIO21/19/26 are
+  // repurposed (I2C bus + chassis CAN) — never drive them as GPIO there.
+  if (!isNewBoard)
+  {
+    pinMode(pinEML, OUTPUT);     // for engine management light output
+    pinMode(pinEPC, OUTPUT);     // for electronic pedal control output
+    pinMode(pinReverse, OUTPUT); // for reverse MOSFET output (5A max!)
+  }
 
   pinMode(pinCoil, OUTPUT); // for high-voltage RPM (can be turned on/off in WiFi so always enable regardless)
   pinMode(pinRPM, OUTPUT);  // for standard square wave RPM
   pinMode(pinRpmPulse, INPUT);
+  pinMode(pinVR, INPUT); // VR speed sensor input (external pull-up to 3.3V)
 
   // Hold generated outputs low until an active frequency is requested.
   digitalWrite(pinCoil, LOW);
@@ -143,9 +156,11 @@ void setupPins()
   // Initialise ISR timestamps now so the first pulse doesn't see a
   // stale zero and produce a spurious reading.
   hallPreviousMicros = micros();
+  vrPreviousMicros   = micros();
   rpmPreviousMicros  = micros();
 
   attachInterrupt(digitalPinToInterrupt(pinHallSensor), incomingHz, FALLING); // setup interrupt to toggle pin on change
+  attachInterrupt(digitalPinToInterrupt(pinVR), incomingVRHz, FALLING); // setup interrupt for VR speed sensor input
   attachInterrupt(digitalPinToInterrupt(pinRpmPulse), incomingRPMHz, FALLING); // setup interrupt for engine RPM pulse input
 }
 
@@ -264,11 +279,11 @@ void blinkLED(int duration, int flashes, bool boolEPC, bool boolEML, bool boolRP
   // Ensure requested outputs start LOW before first ON edge.
   if (blinkState.boolEPC)
   {
-    digitalWrite(pinEPC, LOW);
+    driveEPC(false);
   }
   if (blinkState.boolEML)
   {
-    digitalWrite(pinEML, LOW);
+    driveEML(false);
   }
   if (blinkState.boolRPM)
   {
@@ -300,11 +315,11 @@ void updateBlinkLED(void)
     // Apply the current state to all requested outputs
     if (blinkState.boolEPC)
     {
-      digitalWrite(pinEPC, blinkState.outputState ? HIGH : LOW);
+      driveEPC(blinkState.outputState);
     }
     if (blinkState.boolEML)
     {
-      digitalWrite(pinEML, blinkState.outputState ? HIGH : LOW);
+      driveEML(blinkState.outputState);
     }
     if (blinkState.boolRPM)
     {
@@ -325,11 +340,11 @@ void updateBlinkLED(void)
     if (blinkState.currentFlash >= blinkState.flashCount)
     {
       // Sequence complete - turn off all outputs (but never the pin the
-      // coolant gauge owns, or we'd punch a hole in its PWM).
-      if (coolantOutput != 2)
-        digitalWrite(pinEPC, LOW);
-      if (coolantOutput != 1)
-        digitalWrite(pinEML, LOW);
+      // coolant gauge owns on the old board, or we'd punch a hole in its PWM).
+      if (isNewBoard || coolantOutput != 2)
+        driveEPC(false);
+      if (isNewBoard || coolantOutput != 1)
+        driveEML(false);
       digitalWrite(pinRPM, LOW);
       digitalWrite(pinSpeed, LOW);
       blinkState.active = false;
@@ -552,6 +567,13 @@ void applyCoolantOutput()
 // through the calibration table. Only touches the LEDC driver on a change.
 void updateCoolantOutput()
 {
+  // New board: coolant is a dedicated MCP4725 DAC, not a shared EML/EPC pin.
+  if (isNewBoard)
+  {
+    updateCoolantDAC();
+    return;
+  }
+
   applyCoolantOutput();
 
   if (coolantOutput == 0)
@@ -599,6 +621,17 @@ void incomingHz()                                               // Interrupt ser
   dutyCycleIncoming = (60000000UL / revolutionTime) / 60; // calculate frequency in Hz
   hallPreviousMicros = presentMicros;
   lastPulse = millis();
+}
+
+void incomingVRHz()                                             // Interrupt service routine for variable-reluctance speed sensor
+{
+  unsigned long presentMicros = micros();
+  unsigned long revolutionTime = presentMicros - vrPreviousMicros; // works fine with wrap-around of micros()
+  if (revolutionTime < 1000UL)
+    return;                                                    // debounce — speed can't exceed 60,000 Hz
+  dutyCycleIncomingVR = (60000000UL / revolutionTime) / 60;   // calculate frequency in Hz
+  vrPreviousMicros = presentMicros;
+  lastPulseVR = millis();
 }
 
 void incomingRPMHz()                                            // Interrupt service routine for engine RPM pulse

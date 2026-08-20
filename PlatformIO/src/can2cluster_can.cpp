@@ -4,8 +4,12 @@
 
 void canInit()
 {
+  // Chassis CAN pins differ between boards (new board reuses GPIO16/26).
+  const gpio_num_t txPin = (gpio_num_t)(isNewBoard ? pinTX_CAN_NEW : pinTX_CAN);
+  const gpio_num_t rxPin = (gpio_num_t)(isNewBoard ? pinRX_CAN_NEW : pinRX_CAN);
+
   // Configure TWAI (CAN) controller
-  twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT((gpio_num_t)pinTX_CAN, (gpio_num_t)pinRX_CAN, TWAI_MODE_NORMAL);
+  twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT(txPin, rxPin, TWAI_MODE_NORMAL);
   g_config.rx_queue_len = 256;
   // Enable alerts so we can detect (and recover from) error-passive / bus-off events.
   g_config.alerts_enabled = TWAI_ALERT_BUS_OFF
@@ -314,24 +318,33 @@ void onBodyRX(const twai_message_t &frame)
     // MQB Getriebe_11 (0x0AD) - DSG status broadcast.
     //   SG_ GE_Fahrstufe : 42|4@1+  -> byte 5 bits 2..5, gear-lever position
     // Values: 0=init, 5=P, 6=R, 7=N, 8=D, 9=S, 13=tiptronic.
+    //   SG_ GE_Zielgang  -> byte 7 high nibble, target/engaged gear (1..7, 0 = none)
     // Verified against OpenHaldex MQB log "gears all inc tip and sport.csv".
+    // Also feeds the PQ 'lever'/'gear' globals so the DSG speed source works on MQB.
     const uint8_t fahrstufe = (frame.data[5] >> 2) & 0x0F;
+    const uint8_t zielgang = (frame.data[7] >> 4) & 0x0F;
     switch (fahrstufe)
     {
     case MQB_FAHRSTUFE_P:
       vehiclePark = true;
       vehicleReverse = false;
       vehicleNeutral = false;
+      lever = LEVER_P;
+      gear = 0;
       break;
     case MQB_FAHRSTUFE_R:
       vehiclePark = false;
       vehicleReverse = true;
       vehicleNeutral = false;
+      lever = LEVER_R;
+      gear = 0;
       break;
     case MQB_FAHRSTUFE_N:
       vehiclePark = false;
       vehicleReverse = false;
       vehicleNeutral = true;
+      lever = LEVER_N;
+      gear = 0;
       break;
     case MQB_FAHRSTUFE_D:
     case MQB_FAHRSTUFE_S:
@@ -339,6 +352,10 @@ void onBodyRX(const twai_message_t &frame)
       vehiclePark = false;
       vehicleReverse = false;
       vehicleNeutral = false;
+      lever = (fahrstufe == MQB_FAHRSTUFE_D) ? LEVER_D
+              : (fahrstufe == MQB_FAHRSTUFE_S) ? LEVER_S
+                                               : LEVER_TIPTRONIC_ON;
+      gear = (zielgang >= 1 && zielgang <= 6) ? zielgang : 0;
       break;
     default:
       // init / unknown - leave current state untouched
@@ -401,8 +418,10 @@ void sendPaddleDownFrame()
 
 void broadcastGRA(void *args)
 {
-  uint8_t activeGraCommand = 0x00;
-  uint32_t activeGraCommandUntilMs = 0;
+  // 0x01 = down, 0x02 = up, 0x03 = both. These values feed the PQ GRA frame
+  // (data[3]) and the emulated MQB paddle frame (data[7]) identically.
+  uint8_t activePaddleCmd = 0x00;
+  uint32_t activePaddleCmdUntilMs = 0;
 
   while (1)
   {
@@ -410,33 +429,30 @@ void broadcastGRA(void *args)
     stackbroadcastGRA = uxTaskGetStackHighWaterMark(NULL); // for capturing how much memory the task is using
 #endif
 
-    // Only stream the GRA (paddle) frame when DSG is the active speed source.
-    // The frame must be broadcast continuously (rolling counter + CRC) for the
-    // paddles to work, so it can't be gated on a pending paddle press alone —
-    // a one-shot frame would break counter/checksum continuity. When DSG isn't
+    // Only stream the paddle frames when DSG is the active speed source.
+    // The PQ frame must be broadcast continuously (rolling counter + CRC) for
+    // the paddles to work, so it can't be gated on a pending paddle press alone
+    // — a one-shot frame would break counter/checksum continuity. When DSG isn't
     // selected, nothing goes on the bus and any stale paddle triggers are cleared.
     if (!useDSG)
     {
       padUpTxPending = false;
       padDownTxPending = false;
-      activeGraCommand = 0x00;
+      activePaddleCmd = 0x00;
       vTaskDelay(pdMS_TO_TICKS(broadcastGRARefresh));
       continue;
     }
 
     uint8_t graPulseMS = 80; // how long to hold the paddle signal high for (ms)
 
-    twai_message_t broadcastGRA{};
-    broadcastGRA.identifier = GRA_ID;
-    broadcastGRA.data_length_code = 4;
-    // broadcastGRA.data[0] = GRA_crc; - calculated soon...
-    broadcastGRA.data[1] = 0x00;        // always zero
-    broadcastGRA.data[2] = GRA_counter; // full 8-bit rolling counter (0x00 > 0xFF)
+    // Latch a fresh paddle press into a short pulse shared by both frames.
     if (padUpTxPending && padDownTxPending)
     {
 #if serialDebugPaddles
       DEBUG_PADDLES("Paddle up/down triggered together");
 #endif
+      activePaddleCmd = MQB_PADDLE_BOTH;
+      activePaddleCmdUntilMs = millis() + graPulseMS;
       padUpTxPending = false;
       padDownTxPending = false;
     }
@@ -445,8 +461,8 @@ void broadcastGRA(void *args)
 #if serialDebugPaddles
       DEBUG_PADDLES("Paddle up");
 #endif
-      activeGraCommand = 0x02;
-      activeGraCommandUntilMs = millis() + graPulseMS;
+      activePaddleCmd = MQB_PADDLE_UP;
+      activePaddleCmdUntilMs = millis() + graPulseMS;
       padUpTxPending = false;
     }
     else if (padDownTxPending)
@@ -454,20 +470,29 @@ void broadcastGRA(void *args)
 #if serialDebugPaddles
       DEBUG_PADDLES("Paddle down");
 #endif
-      activeGraCommand = 0x01;
-      activeGraCommandUntilMs = millis() + graPulseMS;
+      activePaddleCmd = MQB_PADDLE_DOWN;
+      activePaddleCmdUntilMs = millis() + graPulseMS;
       padDownTxPending = false;
     }
 
-    if (activeGraCommand != 0x00 && (int32_t)(millis() - activeGraCommandUntilMs) < 0)
+    uint8_t paddleCmd = 0x00;
+    if (activePaddleCmd != 0x00 && (int32_t)(millis() - activePaddleCmdUntilMs) < 0)
     {
-      broadcastGRA.data[3] = activeGraCommand;
+      paddleCmd = activePaddleCmd;
     }
     else
     {
-      broadcastGRA.data[3] = 0x00;
-      activeGraCommand = 0x00;
+      activePaddleCmd = 0x00;
     }
+
+    // --- PQ GRA frame (emulated): rolling counter + XOR checksum. PQ only
+    // recognises a single up/down, so a simultaneous press sends no pulse. ---
+    twai_message_t broadcastGRA{};
+    broadcastGRA.identifier = GRA_ID;
+    broadcastGRA.data_length_code = 4;
+    broadcastGRA.data[1] = 0x00;        // always zero
+    broadcastGRA.data[2] = GRA_counter; // full 8-bit rolling counter (0x00 > 0xFF)
+    broadcastGRA.data[3] = (paddleCmd == MQB_PADDLE_BOTH) ? 0x00 : paddleCmd;
 
     GRA_crc = 0;
     for (uint8_t i = 2; i < 5; i++)
@@ -481,6 +506,26 @@ void broadcastGRA(void *args)
     }
 
     GRA_counter++;
+
+    // --- MQB paddle frame (emulated): the car normally sends 0x3DD; here we
+    // generate it. Static carrier captured from a real cluster, last byte is
+    // the paddle state. No rolling counter/CRC (bytes 0/1 are constant). ---
+    twai_message_t mqbPaddle{};
+    mqbPaddle.identifier = MQB_PADDLE_ID;
+    mqbPaddle.data_length_code = 8;
+    mqbPaddle.data[0] = 0x08;
+    mqbPaddle.data[1] = 0x04;
+    mqbPaddle.data[2] = 0x20;
+    mqbPaddle.data[3] = 0x00;
+    mqbPaddle.data[4] = 0xFE;
+    mqbPaddle.data[5] = 0x00;
+    mqbPaddle.data[6] = 0x0A;
+    mqbPaddle.data[7] = paddleCmd;
+
+    if (twai_transmit(&mqbPaddle, pdMS_TO_TICKS(100)) != ESP_OK)
+    { // failed, ignore
+    }
+
     vTaskDelay(pdMS_TO_TICKS(broadcastGRARefresh));
   }
 }

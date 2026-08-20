@@ -32,6 +32,7 @@
 #define serialDebugDSG 0     // for DSG Serial feedback
 #define serialDebugIO 0      // for General IO Serial feedback
 #define serialDebugCAN 0     // for CAN/TWAI driver Serial feedback
+#define serialDebugI2C 0     // for I2C (board/MCP4725/TCA9554) Serial feedback
 #define detailedDebugStack 0 // for showing stack usage of each task (in showState() task)
 
 #define serialMonitorRefresh 1000 // serial monitor feedback in ms
@@ -41,6 +42,11 @@
 #define broadcastGRARefresh 20    // paddle (GRA) sending via. CAN in ms
 #define gearPause 20              // vTaskDelay (in _dsg.ino) for DSG refreshes
 #define rpmPause 50               // vTaskDelay for the RPM & Speed output tasks (50 ms = 20 Hz). The output frequency only changes on a real value change, so a faster loop just burns CPU and bogs down the other core-1 tasks.
+
+// DSG speed smoothing: gear and RPM arrive on separate CAN frames, so during a
+// shift they are momentarily inconsistent and the calculated speed spikes/bucks.
+#define dsgGearSettleMs 300       // hold last DSG speed for this long after a gear change (real road speed barely moves during a shift)
+#define dsgSpeedSmoothing 0.35    // low-pass factor 0..1 (1 = no smoothing) applied to DSG speed to remove residual RPM jitter
 
 // global object declarations
 extern HardwareSerial ss; // UART2 for GPS (NEO-6M)
@@ -65,6 +71,7 @@ extern uint8_t sweepSpeed;       // for needle sweep rate of change (in ms)
 extern uint16_t maxSpeed;        // maximum cluster speed in kmh on the cluster
 extern uint16_t maxRPM;          // maximum rpm in hz for the cluster
 extern uint16_t maxFreqHall;     // max frequency for top speed using the 02J / 02M hall sensor
+extern uint16_t maxFreqVR;       // max frequency for top speed using a variable-reluctance (VR) sensor
 extern bool useEPCShiftLight;    // bool to use the EPC as a shift light
 extern bool useEMLShiftLight;    // bool to use the EML as a shift light
 
@@ -86,10 +93,37 @@ extern uint16_t stepSpeed;
 #define pinReverse 26 // pin output for reverse mosfet
 
 // setup - pins (inputs)
-#define pinPaddleUp 34   // pin input for DSG paddle up
-#define pinPaddleDown 35 // pin input for DSG paddle down
+#define pinPaddleUp 34   // pin input for DSG paddle up (OLD board only)
+#define pinPaddleDown 35 // pin input for DSG paddle down (OLD board only)
 #define pinHallSensor 25 // pin input for Hall Sensor
+#define pinVR 27         // pin input for variable-reluctance (VR) speed sensor (conditioner digital output, ext pull-up to 3.3V)
 #define pinRpmPulse 39   // pin input for engine RPM pulse
+
+// setup - pins (new board / I2C)
+// NOTE: on the NEW board GPIO21/19 become the I2C bus and GPIO34 becomes the
+// TCA9554 interrupt — the same numbers used above for EPC/EML/paddle on the OLD
+// board. Which meaning applies is chosen at runtime via isNewBoard.
+#define pinBoardSense 32 // board revision sense: LOW (grounded) = new I2C board
+#define pinI2C_SDA 21    // I2C data  (new board)
+#define pinI2C_SCL 19    // I2C clock (new board, non-default)
+#define pinTCA_INT 34    // TCA9554 interrupt input (new board)
+#define I2C_FREQ_HZ 400000UL
+
+// Chassis CAN moves on the NEW board (GPIO16/26 are reused): RX=16, TX=4.
+#define pinRX_CAN_NEW 16 // chassis CAN RX (new board)
+#define pinTX_CAN_NEW 4  // chassis CAN TX (new board)
+
+// I2C device addresses (new board)
+#define MCP4725_ADDR 0x60 // coolant gauge DAC -> op-amp -> BSS138 gate
+#define TCA9554_ADDR 0x20 // I/O expander (A0/A1/A2 grounded)
+#define MCP4725_MAX 4095  // 12-bit DAC full scale
+
+// TCA9554 port bit assignments (new board)
+#define TCA_BIT_REVERSE 0 // P0.0 output
+#define TCA_BIT_EPC     1 // P0.1 output
+#define TCA_BIT_EML     2 // P0.2 output
+#define TCA_BIT_PADDOWN 6 // P0.6 input  (active-LOW)
+#define TCA_BIT_PADUP   7 // P0.7 input  (active-LOW)
 
 // Baud Rates
 #define baudSerial 115200 // baud rate for debug
@@ -185,6 +219,14 @@ extern uint16_t stepSpeed;
 #define DEBUG_CAN_(x, ...)
 #endif
 
+#if serialDebugI2C
+#define DEBUG_I2C(x, ...) Serial.printf("[I2C] " x "\n", ##__VA_ARGS__)
+#define DEBUG_I2C_(x, ...) Serial.printf("[I2C] " x, ##__VA_ARGS__)
+#else
+#define DEBUG_I2C(x, ...)
+#define DEBUG_I2C_(x, ...)
+#endif
+
 #if detailedDebugStack
 #define DEBUG_STACK(x, ...) Serial.printf("[Stack] " x "\n", ##__VA_ARGS__)
 #define DEBUG_STACK_(x, ...) Serial.printf("[Stack] " x, ##__VA_ARGS__)
@@ -217,6 +259,7 @@ extern double dsgSpeed;  // DSG speed (from RPM & Gear), ratios in '_dsg.ino'
 extern double gpsSpeed;  // GPS speed (from '_gps.ino')
 extern double absSpeed;  // ABS speed (from '_gps.ino')
 extern double hallSpeed; // current Speed.  If no CAN, this will catch dividing by zero by the map function
+extern double vrSpeed;   // current Speed from the variable-reluctance (VR) sensor
 
 extern bool rpmTrigger;
 extern bool speedTrigger;
@@ -226,11 +269,17 @@ extern uint8_t gear;         // current gear from DSG
 extern uint8_t lever;        // shifter position
 extern uint8_t gear_raw;     // gear 'raw' data from DSG
 extern uint8_t lever_raw;    // lever 'raw' data from DSG
+extern float dsgGearRatio[7];  // adjustable gear ratios, index 1..6 (DQ250 defaults)
+extern float dsgFinalDrive14;  // final drive for gears 1-4
+extern float dsgFinalDrive56;  // final drive for gears 5-6
+extern float dsgTireCirc;      // tire circumference in metres
 extern uint32_t lastMillis;  // Counter for sending frames x ms
 extern uint32_t lastMillis2; // Counter for sending frames x ms
 extern uint32_t lastCAN;     // last CAN message
 extern volatile unsigned long lastPulse;
 extern volatile unsigned long dutyCycleIncoming; // Duty Cycle % coming in from Can2Cluster or Hall
+extern volatile unsigned long lastPulseVR;       // timestamp of last VR pulse
+extern volatile unsigned long dutyCycleIncomingVR; // incoming VR pulse frequency (Hz)
 extern volatile unsigned long dutyCycleMotor;    // incoming engine RPM pulse frequency (Hz)
 extern volatile unsigned long lastPulseRPM;      // timestamp of last engine RPM pulse
 
@@ -253,6 +302,7 @@ extern volatile bool padDownTxPending; // one-shot CAN transmit trigger for padd
 
 // for eep - settings via. WiFi
 extern bool useHall;    // type of speed input to use: hall sensor
+extern bool useVR;      // type of speed input to use: variable-reluctance (VR) sensor
 extern bool useECU;     // type of speed input to use: ECU via. CAN (MOTOR2_ID)
 extern bool useDSG;     // type of speed input to use: DSG via. CAN (parseDSG) - based on RPM/Current Gear (ratios are key!)
 extern bool useGPS;     // type of speed input to use: GPS Module (Neo6M)
@@ -311,8 +361,14 @@ extern uint8_t coolantCalCount;                // number of calibration points i
 extern int16_t coolantCalTemp[COOLANT_CAL_MAX];  // calibration temperature points (deg C), kept sorted ascending
 extern uint16_t coolantCalDuty[COOLANT_CAL_MAX]; // calibration duty points (0-1023), paired with coolantCalTemp
 extern bool coolantCalMode;                    // when true, output is driven at coolantCalDutyNow so the needle can be read
-extern uint16_t coolantCalDutyNow;             // live jog duty used while calibrating (0-1023)
+extern uint16_t coolantCalDutyNow;             // live jog duty used while calibrating (0-1023 old / 0-4095 new)
 extern uint16_t coolantAppliedDuty;            // last duty actually written to the gauge (for status/curve)
+
+// Board revision + I2C peripheral state (new board only)
+extern bool isNewBoard;      // true when pinBoardSense (GPIO32) is grounded
+extern bool i2cMcpPresent;   // MCP4725 coolant DAC acked on the bus
+extern bool i2cTcaPresent;   // TCA9554 expander acked on the bus
+extern uint8_t tcaInputShadow; // last-read TCA9554 port input byte
 
 // Blink LED state
 struct BlinkState
@@ -408,6 +464,15 @@ extern uint32_t stackcheckError;
 #define DIAGNOSE_01 0x6B2   // diagnostics broadcast
 #define KOMBI_02 0x6B7      // instrument cluster broadcast
 
+// MQB DSG paddle/tip message. Captured from a real cluster ("Paddle Shifters
+// Filter Log.csv"): static carrier 08 04 20 00 FE 00 0A, last byte = paddle
+// state. No rolling counter/CRC (bytes 0/1 stay constant in the log).
+#define MQB_PADDLE_ID 0x3DD // last byte (data[7]) carries the paddle request
+#define MQB_PADDLE_NONE 0x00
+#define MQB_PADDLE_DOWN 0x01 // shift down
+#define MQB_PADDLE_UP 0x02   // shift up
+#define MQB_PADDLE_BOTH 0x03 // both paddles (unused by cluster, logged for completeness)
+
 // MQB Getriebe_11 GE_Fahrstufe (gear-lever position) values — byte 5 bits 2..5.
 // Verified against OpenHaldex MQB log "gears all inc tip and sport.csv".
 #define MQB_FAHRSTUFE_INIT 0x0 // init / no display
@@ -432,6 +497,7 @@ extern void broadcastGRA(void *args);
 extern void setFrequencySpeed(long frequencyHz);
 extern void setFrequencyRPM(long frequencyHz);
 extern void incomingHz();
+extern void incomingVRHz();
 extern void incomingRPMHz();
 
 // for EEP
