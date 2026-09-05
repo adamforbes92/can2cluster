@@ -243,6 +243,12 @@ void onBodyRX(const twai_message_t &frame)
     vehicleRPMCAN = ((frame.data[0] << 8) | frame.data[1]);
     break;
 
+  case RENAULT_MEGANE_ECU:
+    // Renault Megane engine RPM: bytes 0..1 big-endian, raw/8 (verified against
+    // 2K/3K/4K/5K RPM logs — 4000 RPM reads 0x7D00).
+    vehicleRPMCAN = (((uint16_t)frame.data[0] << 8) | frame.data[1]) >> 3;
+    break;
+
   case emeraldECU2_ID:
     calcSpeed = ((frame.data[2] << 8) | frame.data[3]) * (2.25 / 256);
     break;

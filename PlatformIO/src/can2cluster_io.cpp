@@ -3,14 +3,90 @@
 #include "can2cluster_i2c.h"
 #include <driver/ledc.h>
 
-// File-scope ISR state — must NOT be function-local statics.
-// C++ function-local statics with non-constant initialisers call
-// __cxa_guard_acquire() -> pthread_mutex_lock() -> xSemaphoreTake()
-// on their first invocation, which asserts inside FreeRTOS when triggered
-// from an ISR context (xQueueSemaphoreTake assert in queue.c).
-static unsigned long hallPreviousMicros = 0;
-static unsigned long vrPreviousMicros   = 0;
-static unsigned long rpmPreviousMicros  = 0;
+// Windowed frequency capture — shared by the hall, VR and RPM inputs. Deriving Hz
+// from a single edge-to-edge period turns tone-wheel / tooth-spacing jitter straight
+// into a jumpy reading, so instead each ISR accumulates the summed edge intervals and
+// the interval count. The task reads-and-clears the pair once per loop, so
+// freq = count / summedInterval is a true average over the window.
+//
+// File-scope (not function-local statics): C++ function-local statics with non-constant
+// initialisers call __cxa_guard_acquire() -> pthread_mutex_lock() -> xSemaphoreTake()
+// on their first invocation, which asserts inside FreeRTOS when triggered from an ISR
+// context (xQueueSemaphoreTake assert in queue.c).
+struct PulseWindow
+{
+  volatile uint32_t accumUs;    // summed edge-to-edge intervals (us) this window
+  volatile uint32_t count;      // number of intervals summed into accumUs
+  volatile uint32_t lastEdgeUs; // micros() of the previous accepted edge (kept across windows)
+};
+
+static PulseWindow hallPulse = {0, 0, 0}; // vehicle hall speed input
+static PulseWindow vrPulse = {0, 0, 0};   // variable-reluctance speed input
+static PulseWindow rpmPulse = {0, 0, 0};  // engine RPM input
+
+// Reject edges closer together than this. Ignition-coil EMI couples in as
+// sub-millisecond bursts, while a real input edge tops out around 230 Hz (~4.3 ms),
+// so anything faster than ~3 ms (333 Hz) can't be a genuine pulse and is dropped.
+static const uint32_t PULSE_MIN_INTERVAL_US = 3000;
+
+// Guards the read-and-clear of the pulse windows against the ISRs. portMUX is the
+// FreeRTOS/ESP32-safe primitive; a global noInterrupts() would starve the WiFi radio.
+static portMUX_TYPE pulseMux = portMUX_INITIALIZER_UNLOCKED;
+
+// Accumulate one edge into a window. Returns true when the edge was accepted (it
+// advanced the average), false when it merely seeded the window or was rejected as a
+// glitch. lastEdgeUs is kept on a glitch so the next real edge still measures from the
+// last good edge.
+static inline bool pulseEdge(PulseWindow &w, uint32_t now)
+{
+  uint32_t last = w.lastEdgeUs;
+  if (last == 0)
+  {
+    w.lastEdgeUs = now; // seed on the first pulse only
+    return false;
+  }
+  uint32_t interval = now - last;
+  if (interval < PULSE_MIN_INTERVAL_US)
+    return false; // coil EMI / bounce: ignore, keep the last good edge
+  w.accumUs += interval;
+  w.count++;
+  w.lastEdgeUs = now;
+  return true;
+}
+
+// Read-and-clear a window, returning its averaged frequency in Hz, or -1 when no fresh
+// edges arrived (caller should hold the previous value). lastEdgeUs is left intact so
+// the next window's first interval bridges from this window's last edge.
+static float readPulseHz(PulseWindow &w)
+{
+  portENTER_CRITICAL(&pulseMux);
+  uint32_t count = w.count;
+  uint32_t accum = w.accumUs;
+  w.count = 0;
+  w.accumUs = 0;
+  portEXIT_CRITICAL(&pulseMux);
+  if (count >= 1 && accum > 0)
+    return (float)count * 1000000.0f / (float)accum;
+  return -1.0f;
+}
+
+// Full reset (including the edge reference) — used on timeout so a stale lastEdgeUs
+// can't inject one bogus huge-interval reading when the input resumes.
+static void resetPulseWindow(PulseWindow &w)
+{
+  portENTER_CRITICAL(&pulseMux);
+  w.accumUs = 0;
+  w.count = 0;
+  w.lastEdgeUs = 0;
+  portEXIT_CRITICAL(&pulseMux);
+}
+
+float readHallHz() { return readPulseHz(hallPulse); }
+float readVRHz() { return readPulseHz(vrPulse); }
+float readRPMHz() { return readPulseHz(rpmPulse); }
+void resetHallPulseCounter() { resetPulseWindow(hallPulse); }
+void resetVRPulseCounter() { resetPulseWindow(vrPulse); }
+void resetRPMPulseCounter() { resetPulseWindow(rpmPulse); }
 
 namespace
 {
@@ -152,12 +228,6 @@ void setupPins()
   digitalWrite(pinSpeed, LOW);
 
   setupLedcOutputs();
-
-  // Initialise ISR timestamps now so the first pulse doesn't see a
-  // stale zero and produce a spurious reading.
-  hallPreviousMicros = micros();
-  vrPreviousMicros   = micros();
-  rpmPreviousMicros  = micros();
 
   attachInterrupt(digitalPinToInterrupt(pinHallSensor), incomingHz, FALLING); // setup interrupt to toggle pin on change
   attachInterrupt(digitalPinToInterrupt(pinVR), incomingVRHz, FALLING); // setup interrupt for VR speed sensor input
@@ -614,33 +684,18 @@ void updateCoolantOutput()
 
 void incomingHz()                                               // Interrupt service routine for Hall speed sensor
 {
-  unsigned long presentMicros = micros();
-  unsigned long revolutionTime = presentMicros - hallPreviousMicros; // works fine with wrap-around of micros()
-  if (revolutionTime < 1000UL)
-    return;                                               // debounce — speed can't exceed 60,000 Hz
-  dutyCycleIncoming = (60000000UL / revolutionTime) / 60; // calculate frequency in Hz
-  hallPreviousMicros = presentMicros;
-  lastPulse = millis();
+  if (pulseEdge(hallPulse, micros()))
+    lastPulse = millis();
 }
 
 void incomingVRHz()                                             // Interrupt service routine for variable-reluctance speed sensor
 {
-  unsigned long presentMicros = micros();
-  unsigned long revolutionTime = presentMicros - vrPreviousMicros; // works fine with wrap-around of micros()
-  if (revolutionTime < 1000UL)
-    return;                                                    // debounce — speed can't exceed 60,000 Hz
-  dutyCycleIncomingVR = (60000000UL / revolutionTime) / 60;   // calculate frequency in Hz
-  vrPreviousMicros = presentMicros;
-  lastPulseVR = millis();
+  if (pulseEdge(vrPulse, micros()))
+    lastPulseVR = millis();
 }
 
 void incomingRPMHz()                                            // Interrupt service routine for engine RPM pulse
 {
-  unsigned long presentMicros = micros();
-  unsigned long revolutionTime = presentMicros - rpmPreviousMicros; // works fine with wrap-around of micros()
-  if (revolutionTime < 1000UL)
-    return;                                                    // debounce
-  dutyCycleMotor = (60000000UL / revolutionTime) / 60;        // calculate frequency in Hz
-  rpmPreviousMicros = presentMicros;
-  lastPulseRPM = millis();
+  if (pulseEdge(rpmPulse, micros()))
+    lastPulseRPM = millis();
 }

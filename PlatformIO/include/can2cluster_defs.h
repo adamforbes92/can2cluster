@@ -15,7 +15,7 @@
 #include <ESPmDNS.h>        // included for WiFi pages
 #include <OneButton.h>
 
-#define FW_VERSION "3.20"
+#define FW_VERSION "3.21"
 
 #define COOLANT_CAL_MAX 12 // max calibration points for the coolant temp gauge
 // LEDC 10-bit resolution at the 80 MHz APB clock tops out at 80e6/1024 ≈ 78125 Hz.
@@ -429,6 +429,11 @@ extern uint32_t stackcheckError;
 #define fordECU1_ID 0x201
 #define fordECU2_ID 0x420
 
+// Renault Megane engine ECU broadcast (confirmed from Megane CAN logs).
+// RPM lives in bytes 0..1 (big-endian 16-bit), scaling raw/8, e.g. 4000 RPM = 0x7D00.
+// Same value is mirrored on 0x1F9 bytes 2..3.
+#define RENAULT_MEGANE_ECU 0x181
+
 // MQB platform CAN addresses (from the OpenHaldex project / vw_mqb.dbc + MQB FCAN K-matrix).
 // All not req. but here for keepsakes
 #define LWI_01 0x086        // steering-angle sensor (Lenkwinkelinformation)
@@ -499,6 +504,12 @@ extern void setFrequencyRPM(long frequencyHz);
 extern void incomingHz();
 extern void incomingVRHz();
 extern void incomingRPMHz();
+extern float readHallHz();
+extern float readVRHz();
+extern float readRPMHz();
+extern void resetHallPulseCounter();
+extern void resetVRPulseCounter();
+extern void resetRPMPulseCounter();
 
 // for EEP
 extern void readEEP();

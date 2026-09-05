@@ -36,4 +36,6 @@ V3.20 - added MQB support. Added TP2.0 and UDS speed support for DSG speed.  Add
       - added coolant temp output.  Uses a PWM signal to 'drive' the cluster gauge.  Can be calibrated via. WiFi
       - Added a PWM frequency limit to avoid high-temp LED lighting
 
+V3.21 - added Renault Megane RPM input
+
 */

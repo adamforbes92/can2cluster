@@ -119,14 +119,23 @@ void updateSpeed(void *args)
     if (!tempNeedleSweep && !diagTest)
     { // only here if tested in WiFi
 
+      // Windowed frequency: read-and-clear the accumulators once per loop so the
+      // reading is a true average over the window instead of one jittery edge-to-edge
+      // period. Returns <0 when no fresh edges arrived — hold the last value then.
+      float hallHz = readHallHz();
+      float vrHz = readVRHz();
+
       // Reset Hall speed if no pulse has arrived within durationReset ms
       if ((millis() + 10 - lastPulse) > durationReset)
       {
         dutyCycleIncoming = 0;
         hallSpeed = 0;
+        resetHallPulseCounter();
       }
       else
       {
+        if (hallHz >= 0.0f)
+          dutyCycleIncoming = (unsigned long)(hallHz + 0.5f);
         hallSpeed = map(dutyCycleIncoming, 0, maxFreqHall, 0, maxSpeed);
       }
 
@@ -135,9 +144,12 @@ void updateSpeed(void *args)
       {
         dutyCycleIncomingVR = 0;
         vrSpeed = 0;
+        resetVRPulseCounter();
       }
       else
       {
+        if (vrHz >= 0.0f)
+          dutyCycleIncomingVR = (unsigned long)(vrHz + 0.5f);
         vrSpeed = map(dutyCycleIncomingVR, 0, maxFreqVR, 0, maxSpeed);
       }
 
@@ -208,6 +220,10 @@ void updateRPM(void *args)
 #endif
     if (!tempNeedleSweep && !diagTest)
     { // only here if tested in WiFi
+      // Windowed frequency: read-and-clear the RPM accumulator once per loop so the
+      // reading is a true average over the window rather than one jittery period.
+      // Drained every loop (even on CAN RPM) so the window can't grow unbounded.
+      float rpmHz = readRPMHz();
       if (testRPM)
       { // set vehicleRPM is testing or not
         vehicleRPM = tempRPM;
@@ -221,9 +237,12 @@ void updateRPM(void *args)
           {
             dutyCycleMotor = 0;
             vehicleRPM = 0;
+            resetRPMPulseCounter();
           }
           else
           {
+            if (rpmHz >= 0.0f)
+              dutyCycleMotor = (unsigned long)(rpmHz + 0.5f);
             unsigned long clampedMotorHz = dutyCycleMotor > maxRPM ? maxRPM : dutyCycleMotor;
             vehicleRPM = map(clampedMotorHz, 0, maxRPM, 0, clusterRPMLimit);
           }
