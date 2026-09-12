@@ -38,4 +38,8 @@ V3.20 - added MQB support. Added TP2.0 and UDS speed support for DSG speed.  Add
 
 V3.21 - added Renault Megane RPM input
 
+V3.22 - added MQB DSG paddle up/down emulation on the real shifter CAN ID (0x0AF),
+        reverse-engineered from CrazyQuiffs' tip+/tip- CAN logs captured directly
+        at the shifter/paddle module
+
 */

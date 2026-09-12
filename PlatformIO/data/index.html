@@ -9,13 +9,13 @@
     <meta http-equiv="Expires" content="0">
 
     <title>Can2Cluster</title>
-    <link rel="stylesheet" href="style.css?v=3.20">
+    <link rel="stylesheet" href="style.css?v=c2c-3.23">
 </head>
 
 <body>
     <div class="container">
-        <header>
-            <h1>Can2Cluster V3</h1>
+        <header class="topbar">
+            <h1>Can2Cluster</h1>
             <div class="status-bar">
                 <span class="status-badge" id="canStatus">CAN: --</span>
                 <span class="status-badge" id="fwVersion">FW: --</span>
@@ -83,6 +83,12 @@
                         <div class="status-value" id="paddleDownStatus">--</div>
                     </div>
                 </div>
+            </section>
+
+            <section class="card">
+                <h2>Display Options</h2>
+                <p class="hint">Choose which readouts show as dial gauges instead of numbers. Saved in this browser.</p>
+                <div class="tile-opt-grid" id="gaugeCustomizer"></div>
             </section>
         </div>
 
@@ -676,30 +682,32 @@
             <section class="card centered-card">
                 <h2>OTA Update</h2>
                 <div class="info-box" style="margin-bottom:1rem">
-                    <p><strong>Firmware</strong> updates the application (compiled <strong>firmware.bin</strong>).</p>
                     <p><strong>Filesystem</strong> updates the web interface (<strong>littlefs.bin</strong>).</p>
-                    <p>The device reboots automatically once the upload completes.</p>
+                    <p><strong>Firmware</strong> updates the application (compiled <strong>firmware.bin</strong>).</p>
+                    <p>Update the filesystem first, then the firmware. The device reboots automatically once the firmware upload completes.</p>
+                </div>
+                <div class="ota-steps" id="otaSteps">
+                    <div class="ota-step" data-step="filesystem"><span class="ota-step-num">1</span> Filesystem</div>
+                    <div class="ota-step" data-step="firmware"><span class="ota-step-num">2</span> Firmware</div>
                 </div>
                 <div class="input-group">
                     <label>Update Type</label>
                     <select id="otaType">
-                        <option value="firmware">Firmware (application)</option>
                         <option value="filesystem">Filesystem (web UI)</option>
+                        <option value="firmware">Firmware (application)</option>
                     </select>
                 </div>
-                <div class="ota-upload-area" id="otaDropZone">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                    <p>Drag &amp; drop a <strong>.bin</strong> file here, or</p>
-                    <button class="btn-secondary" id="otaChooseBtn" type="button">Choose File</button>
-                    <p id="otaFileName" class="ota-file-name"></p>
-                    <input type="file" id="otaFile" accept=".bin" style="display:none">
+                <div class="input-group">
+                    <label>Binary (.bin)</label>
+                    <input type="file" id="otaFile" accept=".bin,application/octet-stream">
                 </div>
+                <p id="otaFileName" class="ota-file-name"></p>
                 <div class="ota-progress" id="otaProgressWrap" style="display:none">
                     <div class="ota-progress-bar" id="otaProgressBar"></div>
                     <div class="ota-progress-label" id="otaProgressLabel">0%</div>
                 </div>
                 <div class="button-group" style="margin-top:1rem">
-                    <button class="btn-primary" id="otaUploadBtn" disabled>Upload Firmware</button>
+                    <button class="btn-primary" id="otaUploadBtn" disabled>Upload</button>
                 </div>
                 <div class="ota-status" id="otaStatus"></div>
             </section>
@@ -708,7 +716,7 @@
 
     </div>
 
-    <script src="app.js?v=3.20"></script>
+    <script src="app.js?v=c2c-3.23"></script>
 </body>
 
 </html>

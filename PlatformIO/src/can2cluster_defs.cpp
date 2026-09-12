@@ -64,6 +64,7 @@ bool vehicleOilPressure = false;
 bool vehicleBattLight = false;
 uint8_t GRA_counter = 0;
 uint8_t GRA_crc = 0;
+uint8_t shifterPaddleCounter = 0;
 
 bool boolPadUp = false;
 bool boolPadDown = false;

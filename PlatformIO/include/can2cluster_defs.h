@@ -15,7 +15,9 @@
 #include <ESPmDNS.h>        // included for WiFi pages
 #include <OneButton.h>
 
-#define FW_VERSION "3.21"
+// V3.23 - shared Forbes Automotive UI theme; common wifi_manager (c2c.local)
+//         and ota_manager (firmware + filesystem OTA); per-product cache-busting.
+#define FW_VERSION "3.23"
 
 #define COOLANT_CAL_MAX 12 // max calibration points for the coolant temp gauge
 // LEDC 10-bit resolution at the 80 MHz APB clock tops out at 80e6/1024 ≈ 78125 Hz.
@@ -57,7 +59,7 @@ extern OneButton btnPadDown;
 
 // setup - main inputs
 #define mphFactor 621371              // to convert from kmh > mph (multiply, then /1000000)
-#define wifiHostName "Can2Cluster V3" // the WiFi name
+#define wifiHostName "Can2Cluster" // the WiFi name
 
 // setup - tweaky things
 #define shiftLightRate 100 // flash EPC at xx ms.  Decreasing may lead to a 'constant' light because of the human eye... ** CAN CHANGE THIS **
@@ -293,6 +295,7 @@ extern bool vehicleOilPressure; // current oil pressure (from Ford)
 extern bool vehicleBattLight;   // current battery light (from Ford)
 extern uint8_t GRA_counter;     // for paddle frames
 extern uint8_t GRA_crc;         // for paddle frames
+extern uint8_t shifterPaddleCounter; // free-running 4-bit counter for SHIFTER_PADDLE_ID
 
 // external variables / triggers
 extern bool boolPadUp;                 // current EML light status
@@ -477,6 +480,19 @@ extern uint32_t stackcheckError;
 #define MQB_PADDLE_DOWN 0x01 // shift down
 #define MQB_PADDLE_UP 0x02   // shift up
 #define MQB_PADDLE_BOTH 0x03 // both paddles (unused by cluster, logged for completeness)
+
+// DSG paddle/tip status, verified directly at the shifter/paddle module on
+// Powertrain CAN (Tplus-log.csv / Tminus-log.csv: idle vs. tip+ held vs. tip-
+// held). 4-byte frame: D2 hi-nibble = paddle state, D2 lo-nibble = a
+// free-running 4-bit counter that keeps incrementing across state changes.
+// D1 = ~(D2 hi-nibble) in its top nibble, with a fixed 0x2 low nibble — this
+// is NOT a real per-frame CRC (D3/D4 don't affect it), just a complemented
+// companion byte. D3/D4 carry an unrelated multiplexed signal; sent as 0x00 0x00.
+// This supersedes the never-wired-up GETRIEBE_17 (0xB1) guess below.
+#define SHIFTER_PADDLE_ID 0x0AF
+#define SHIFTER_PADDLE_STATE_IDLE 0x1
+#define SHIFTER_PADDLE_STATE_DOWN 0x4
+#define SHIFTER_PADDLE_STATE_UP 0x5
 
 // MQB Getriebe_11 GE_Fahrstufe (gear-lever position) values — byte 5 bits 2..5.
 // Verified against OpenHaldex MQB log "gears all inc tip and sport.csv".

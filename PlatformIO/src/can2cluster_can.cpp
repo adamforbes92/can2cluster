@@ -370,6 +370,23 @@ void onBodyRX(const twai_message_t &frame)
     break;
   }
 
+  case SHIFTER_PADDLE_ID:
+  {
+    // Decode a real (non-emulated) tip up/down frame seen on the bus, e.g.
+    // from the factory shifter/paddle module. Debug-only — not wired into
+    // padUpFunc/padDownFunc so it can't feed back into our own emulation.
+    const uint8_t stateNibble = (frame.data[1] >> 4) & 0x0F;
+    if (stateNibble == SHIFTER_PADDLE_STATE_UP)
+    {
+      DEBUG_PADDLES("Shifter CAN 0x%03X: paddle UP", SHIFTER_PADDLE_ID);
+    }
+    else if (stateNibble == SHIFTER_PADDLE_STATE_DOWN)
+    {
+      DEBUG_PADDLES("Shifter CAN 0x%03X: paddle DOWN", SHIFTER_PADDLE_ID);
+    }
+    break;
+  }
+
   default:
     // do nothing...
     break;
@@ -531,6 +548,27 @@ void broadcastGRA(void *args)
     if (twai_transmit(&mqbPaddle, pdMS_TO_TICKS(100)) != ESP_OK)
     { // failed, ignore
     }
+
+    // --- Shifter paddle frame (emulated): real ID/encoding verified directly
+    // at the shifter module (see SHIFTER_PADDLE_ID comment). D2 hi-nibble is
+    // the state, lo-nibble is a free-running counter; D1 mirrors D2's state
+    // nibble complemented, with a fixed low nibble. ---
+    const uint8_t shifterState = (paddleCmd == MQB_PADDLE_UP)     ? SHIFTER_PADDLE_STATE_UP
+                                  : (paddleCmd == MQB_PADDLE_DOWN) ? SHIFTER_PADDLE_STATE_DOWN
+                                                                    : SHIFTER_PADDLE_STATE_IDLE;
+    twai_message_t shifterPaddle{};
+    shifterPaddle.identifier = SHIFTER_PADDLE_ID;
+    shifterPaddle.data_length_code = 4;
+    shifterPaddle.data[1] = (shifterState << 4) | (shifterPaddleCounter & 0x0F);
+    shifterPaddle.data[0] = (~shifterPaddle.data[1] & 0xF0) | 0x02;
+    shifterPaddle.data[2] = 0x00;
+    shifterPaddle.data[3] = 0x00;
+
+    if (twai_transmit(&shifterPaddle, pdMS_TO_TICKS(100)) != ESP_OK)
+    { // failed, ignore
+    }
+
+    shifterPaddleCounter++;
 
     vTaskDelay(pdMS_TO_TICKS(broadcastGRARefresh));
   }

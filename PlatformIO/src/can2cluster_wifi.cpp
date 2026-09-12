@@ -3,6 +3,8 @@
 #include "can2cluster_gps.h"
 #include "can2cluster_i2c.h"
 #include "power_manager.h"
+#include "wifi_manager.h"
+#include "ota_manager.h"
 #include <ArduinoJson.h>
 #include <LittleFS.h>
 #include <Update.h>
@@ -284,9 +286,6 @@ static void sendCoolantCalState(AsyncWebServerRequest *request)
 
 void setupWebRoutes()
 {
-  // Serve static files from LittleFS.
-  server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html");
-
   server.on("/api/settings", HTTP_GET, [](AsyncWebServerRequest *request)
             {
     JsonDocument doc;
@@ -726,119 +725,20 @@ void setupWebRoutes()
         request->send(ok ? 200 : 400, "application/json", response);
       });
 
-  // OTA Update API endpoints
-  server.on("/api/ota/info", HTTP_GET, [](AsyncWebServerRequest *request)
-            {
-    JsonDocument doc;
-    
-    // Get chip info
-    esp_chip_info_t chip_info;
-    esp_chip_info(&chip_info);
-    
-    // Build board string
-    String board = "ESP32";
-    board += " (";
-    board += chip_info.cores;
-    board += " cores";
-    if (chip_info.revision > 0) {
-      board += " Rev.";
-      board += chip_info.revision;
-    }
-    board += ")";
-    
-    // Hardware info
-    String hardware = "ESP32 ";
-    hardware += (chip_info.revision > 0 ? "Revision " : "");
-    hardware += chip_info.revision;
-    
-    doc["board"] = board;
-    doc["hardware"] = hardware;
-    doc["version"] = FW_VERSION;
-    
-    AsyncResponseStream *response = request->beginResponseStream("application/json");
-    serializeJson(doc, *response);
-    request->send(response); });
+  // Standard OTA (firmware + filesystem): /api/ota, /api/ota/fs, /api/ota/info.
+  ota_config_t ocfg = otaDefaultConfig();
+  ocfg.fwVersion = FW_VERSION;
+  otaManagerInit(&ocfg);
+  otaManagerAttach(server);
 
-  server.on("/api/ota", HTTP_POST,
-    [](AsyncWebServerRequest *request) {
-      bool success = !Update.hasError();
-      request->send(success ? 200 : 500, "application/json",
-                    success ? "{\"success\":true}" : "{\"success\":false}");
-      if (success) {
-        xTaskCreate([](void*) {
-          vTaskDelay(pdMS_TO_TICKS(1500));
-          ESP.restart();
-          vTaskDelete(nullptr);
-        }, "ota_reboot", 2048, nullptr, 1, nullptr);
-      }
-    },
-    [](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
-      if (index == 0) {
-        DEBUG_WIFI("Starting firmware OTA: %s", filename.c_str());
-        if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
-          Update.printError(Serial);
-        }
-      }
-      if (!Update.hasError()) {
-        if (Update.write(data, len) != len) {
-          Update.printError(Serial);
-        }
-      }
-      if (final) {
-        if (!Update.hasError()) {
-          if (!Update.end(true)) {
-            Update.printError(Serial);
-          } else {
-            DEBUG_WIFI("Firmware OTA complete");
-          }
-        }
-      }
-    });
+  // Static web UI with firmware cache-busting.
+  wifiManagerAttachStatic(server);
 
-  server.on("/api/ota/fs", HTTP_POST,
-    [](AsyncWebServerRequest *request) {
-      bool success = !Update.hasError();
-      request->send(success ? 200 : 500, "application/json",
-                    success ? "{\"success\":true}" : "{\"success\":false}");
-      if (success) {
-        xTaskCreate([](void*) {
-          vTaskDelay(pdMS_TO_TICKS(1500));
-          ESP.restart();
-          vTaskDelete(nullptr);
-        }, "otafs_reboot", 2048, nullptr, 1, nullptr);
-      }
-    },
-    [](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
-      if (index == 0) {
-        DEBUG_WIFI("Starting filesystem OTA: %s", filename.c_str());
-        if (!Update.begin(UPDATE_SIZE_UNKNOWN, U_SPIFFS)) {
-          Update.printError(Serial);
-        }
-      }
-      if (!Update.hasError()) {
-        if (Update.write(data, len) != len) {
-          Update.printError(Serial);
-        }
-      }
-      if (final) {
-        if (!Update.hasError()) {
-          if (!Update.end(true)) {
-            Update.printError(Serial);
-          } else {
-            DEBUG_WIFI("Filesystem OTA complete");
-          }
-        }
-      }
-    });
 }
 
 void setupUI()
 {
-  if (!LittleFS.begin(true))
-  {
-    DEBUG_WIFI("LittleFS Mount Failed");
-    return;
-  }
+  // LittleFS is mounted by wifiManagerInit(); just register routes.
   setupWebRoutes();
   server.begin();
   DEBUG_WIFI("Web server started");
@@ -847,12 +747,12 @@ void setupUI()
 void connectWifi()
 {
   DEBUG_WIFI("Begin wifi...");
-  WiFi.hostname(wifiHostName);
+  wifimgr_config_t wcfg = wifiDefaultConfig();
+  wcfg.hostName  = wifiHostName;   // SoftAP SSID + hostname
+  wcfg.mdnsName  = "c2c";          // -> http://c2c.local
+  wcfg.fwVersion = FW_VERSION;     // injected into index.html for cache-busting
+  wifiManagerInit(&wcfg);
   WiFi.setTxPower(WIFI_POWER_8_5dBm);
-  WiFi.mode(WIFI_AP);
-  WiFi.softAPConfig(IPAddress(192, 168, 1, 1), IPAddress(192, 168, 1, 1), IPAddress(255, 255, 255, 0));
-  WiFi.softAP(wifiHostName);
-  WiFi.setSleep(false); // for the ESP32: turn off sleeping to increase UI responsivness (at the cost of power use)
   DEBUG_WIFI("WiFi access point started");
 }
 
@@ -876,7 +776,7 @@ void disconnectWifi()
 // off + drops the CPU clock. Power-cycle (ignition off/on) brings WiFi back.
 bool powerIsBusy()
 {
-  return WiFi.softAPgetStationNum() > 0;
+  return WiFi.softAPgetStationNum() > 0 || otaInProgress();
 }
 
 // ACTIVE -> REDUCED: close the web server cleanly before the radio drops. The
@@ -885,6 +785,7 @@ bool powerIsBusy()
 void powerOnEnterReduced()
 {
   server.end();
+  wifiManagerStopAP();
 }
 
 // REDUCED -> ACTIVE: bring the AP and web server back. Routes are already
@@ -892,6 +793,6 @@ void powerOnEnterReduced()
 // the radio + listener (no need to re-run setupWebRoutes()).
 void powerOnExitReduced()
 {
-  connectWifi();
+  wifiManagerStartAP();
   server.begin();
 }

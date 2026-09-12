@@ -9,6 +9,7 @@ function initApp() {
   initCollapsibleCards();
   initCoolant();
   initOutputConflicts();
+  initGaugeUI();
   initOta();
   fetchSettings();  // Load settings once on page load
   fetchStatus();    // Initial status fetch
@@ -470,6 +471,7 @@ async function fetchStatus() {
     rpmEl.textContent = data.vehicleRPM || '--';
     rpmEl.style.color = testRPMActive ? 'orange' : '';
     rpmEl.title = testRPMActive ? 'Test Mode: ' + (data.tempRPM || 0) + ' RPM' : '';
+    updateTileGauges();
 
     // Update advanced live data - all speed sources
     if (document.getElementById('liveRPM')) {
@@ -552,43 +554,34 @@ async function fetchStatus() {
       document.getElementById('liveBroadcastSpeedValue').textContent = `${data.broadcastSpeedValue || 0}${suffix}`;
     }
 
-    // System status (read-only, not settings)
-    document.getElementById('canStatus').textContent = data.hasCAN ? 'CAN: Healthy' : 'CAN: Not Healthy';
-    document.getElementById('canPresent').textContent = data.hasCAN ? 'Healthy' : 'Not Healthy';
+    // System status (read-only, not settings) — rendered as status pills
+    const canOk = !!data.hasCAN;
+    const canStatusEl = document.getElementById('canStatus');
+    canStatusEl.textContent = canOk ? 'CAN: Healthy' : 'CAN: Not Healthy';
+    canStatusEl.className = 'status-badge ' + (canOk ? 'ok' : 'error');
+    setValuePill('canPresent', canOk ? 'ok' : 'bad', canOk ? 'Healthy' : 'Not Healthy');
     if (document.getElementById('gpsPresent')) {
-      if (data.hasGPS) {
-        document.getElementById('gpsPresent').textContent = `Connected (${data.gpsSatellites} sats)`;
-      } else if (data.gpsUnavailable) {
-        document.getElementById('gpsPresent').textContent = 'Not Available';
-      } else {
-        document.getElementById('gpsPresent').textContent = 'Not Connected';
-      }
+      const sats = data.gpsSatellites || 0;
+      if (data.gpsUnavailable) setValuePill('gpsPresent', 'bad', 'Not Available');
+      else if (data.hasGPS && sats > 0) setValuePill('gpsPresent', 'ok', `Connected (${sats} sats)`);
+      else if (data.hasGPS) setValuePill('gpsPresent', 'warn', 'Connected (no sats)');
+      else setValuePill('gpsPresent', 'bad', 'Not Connected');
     }
-    
-    // Output status with highlighting for tests
-    const emlEl = document.getElementById('emlStatus');
-    const emlEffectiveActive = !!data.vehicleEML || testEMLActive;
-    emlEl.textContent = emlEffectiveActive ? 'Active' : 'Inactive';
-    emlEl.style.color = testEMLActive ? 'orange' : '';
-    emlEl.title = testEMLActive ? 'Test Mode: Forced ON' : '';
 
-    const epcEl = document.getElementById('epcStatus');
-    const epcEffectiveActive = !!data.vehicleEPC || testEPCActive;
-    epcEl.textContent = epcEffectiveActive ? 'Active' : 'Inactive';
-    epcEl.style.color = testEPCActive ? 'orange' : '';
-    epcEl.title = testEPCActive ? 'Test Mode: Forced ON' : '';
+    // Output status: active=green, inactive=neutral, test-forced=orange
+    const setOutputPill = (id, active, testActive) => {
+      setValuePill(id, testActive ? 'warn' : (active ? 'ok' : ''), active ? 'Active' : 'Inactive');
+      const el = document.getElementById(id);
+      if (el) el.title = testActive ? 'Test Mode: Forced ON' : '';
+    };
+    setOutputPill('emlStatus', !!data.vehicleEML || testEMLActive, testEMLActive);
+    setOutputPill('epcStatus', !!data.vehicleEPC || testEPCActive, testEPCActive);
+    setOutputPill('reverseStatus', !!data.vehicleReverse || testReverseActive, testReverseActive);
+    setValuePill('parkStatus', data.vehiclePark ? 'ok' : '', data.vehiclePark ? 'Active' : 'Inactive');
 
-    const reverseEl = document.getElementById('reverseStatus');
-    const reverseEffectiveActive = !!data.vehicleReverse || testReverseActive;
-    reverseEl.textContent = reverseEffectiveActive ? 'Active' : 'Inactive';
-    reverseEl.style.color = testReverseActive ? 'orange' : '';
-    reverseEl.title = testReverseActive ? 'Test Mode: Forced ON' : '';
-
-    document.getElementById('parkStatus').textContent = data.vehiclePark ? 'Active' : 'Inactive';
-    
     // Paddle feedback
-    document.getElementById('paddleUpStatus').textContent = data.paddleUp ? 'Active' : 'Inactive';
-    document.getElementById('paddleDownStatus').textContent = data.paddleDown ? 'Active' : 'Inactive';
+    setValuePill('paddleUpStatus', data.paddleUp ? 'ok' : '', data.paddleUp ? 'Active' : 'Inactive');
+    setValuePill('paddleDownStatus', data.paddleDown ? 'ok' : '', data.paddleDown ? 'Active' : 'Inactive');
 
     // Coolant gauge live data
     if (document.getElementById('liveCoolantTemp')) {
@@ -662,6 +655,133 @@ function initCollapsibleCards() {
       }
     });
   });
+}
+
+/* =======================================================================
+   Per-tile dial gauges (ported from the OpenHaldex theme). Any dashboard
+   .gauge tile listed below can render as a 270° dial instead of a number,
+   toggled per-tile in Display Options and saved in this browser.
+   ======================================================================= */
+const GAUGE_TILES = [
+  { id: "rpm",   label: "RPM",   min: 0, max: 8000, unit: "rpm" },
+  { id: "speed", label: "Speed", min: 0, max: 300,  unit: "km/h" },
+];
+const TG_R = 40;
+const TG_CIRC = 2 * Math.PI * TG_R;
+const TG_ARC = TG_CIRC * 0.75;
+const TG_GAP = TG_CIRC - TG_ARC;
+const GAUGE_PREFS_KEY = "c2cGaugePrefs";
+const GAUGE_DEFAULTS = { tiles: ["rpm", "speed"] };
+let gaugePrefs = loadGaugePrefs();
+
+function loadGaugePrefs() {
+  try {
+    const raw = localStorage.getItem(GAUGE_PREFS_KEY);
+    if (raw) {
+      const p = JSON.parse(raw);
+      return { tiles: Array.isArray(p.tiles) ? p.tiles : GAUGE_DEFAULTS.tiles.slice() };
+    }
+  } catch (e) { /* fall through to defaults */ }
+  return { tiles: GAUGE_DEFAULTS.tiles.slice() };
+}
+function saveGaugePrefs() {
+  try { localStorage.setItem(GAUGE_PREFS_KEY, JSON.stringify(gaugePrefs)); } catch (e) {}
+}
+
+// Inject the dial SVG (once) into a tile; colours come from CSS via var().
+function ensureTileGauge(tile) {
+  if (tile.querySelector(".tile-gauge")) return;
+  const wrap = document.createElement("div");
+  wrap.className = "tile-gauge";
+  wrap.innerHTML =
+    `<svg viewBox="0 0 100 100" aria-hidden="true">` +
+    `<circle class="tg-track" cx="50" cy="50" r="${TG_R}" transform="rotate(135 50 50)" ` +
+    `stroke-dasharray="${TG_ARC.toFixed(2)} ${TG_GAP.toFixed(2)}"/>` +
+    `<circle class="tg-fill" cx="50" cy="50" r="${TG_R}" transform="rotate(135 50 50)" ` +
+    `stroke-dasharray="0 ${TG_CIRC.toFixed(2)}"/>` +
+    `<text class="tg-val" x="50" y="52" text-anchor="middle">--</text>` +
+    `<text class="tg-unit" x="50" y="66" text-anchor="middle"></text>` +
+    `<text class="tg-min" x="24" y="92" text-anchor="middle">0</text>` +
+    `<text class="tg-max" x="76" y="92" text-anchor="middle">0</text>` +
+    `</svg>`;
+  tile.appendChild(wrap);
+}
+
+// Reflect prefs: toggle .as-gauge per tile and set the gauge unit label.
+function applyGaugePrefs() {
+  GAUGE_TILES.forEach((t) => {
+    const el = document.getElementById(t.id);
+    if (!el) return;
+    const tile = el.closest(".gauge");
+    if (!tile) return;
+    ensureTileGauge(tile);
+    const on = gaugePrefs.tiles.includes(t.id);
+    tile.classList.toggle("as-gauge", on);
+    if (on) {
+      const unitEl = tile.querySelector(".tg-unit");
+      const srcUnit = tile.querySelector(".gauge-unit");
+      if (unitEl) unitEl.textContent = srcUnit ? srcUnit.textContent.trim() : t.unit;
+      const minEl = tile.querySelector(".tg-min");
+      const maxEl = tile.querySelector(".tg-max");
+      if (minEl) minEl.textContent = t.min;
+      if (maxEl) maxEl.textContent = t.max;
+    }
+  });
+}
+
+// Redraw every tile in gauge mode from the value the poll just wrote.
+function updateTileGauges() {
+  GAUGE_TILES.forEach((t) => {
+    const el = document.getElementById(t.id);
+    if (!el) return;
+    const tile = el.closest(".gauge");
+    if (!tile || !tile.classList.contains("as-gauge")) return;
+    const raw = parseFloat(el.textContent);
+    const valEl = tile.querySelector(".tg-val");
+    const fillEl = tile.querySelector(".tg-fill");
+    if (!valEl || !fillEl) return;
+    // Mirror the numeric test-mode highlight (poll paints the number orange).
+    const gaugeWrap = tile.querySelector(".tile-gauge");
+    if (gaugeWrap) gaugeWrap.classList.toggle("warn", el.style.color === "orange");
+    if (Number.isNaN(raw)) {
+      valEl.textContent = "--";
+      fillEl.style.strokeDasharray = `0 ${TG_CIRC.toFixed(2)}`;
+      return;
+    }
+    valEl.textContent = el.textContent;
+    // Grow a single arc from the start up to the value (do NOT animate offset,
+    // which would just rotate the whole 3/4 ring instead of filling it).
+    const frac = Math.max(0, Math.min(1, (raw - t.min) / (t.max - t.min || 1)));
+    fillEl.style.strokeDasharray = `${(TG_ARC * frac).toFixed(2)} ${TG_CIRC.toFixed(2)}`;
+  });
+}
+
+// Build the Display Options per-tile customizer and apply saved prefs.
+function initGaugeUI() {
+  const host = document.getElementById("gaugeCustomizer");
+  if (host) {
+    host.innerHTML = "";
+    GAUGE_TILES.forEach((t) => {
+      const label = document.createElement("label");
+      label.className = "tile-opt";
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = gaugePrefs.tiles.includes(t.id);
+      cb.addEventListener("change", () => {
+        const set = new Set(gaugePrefs.tiles);
+        if (cb.checked) set.add(t.id); else set.delete(t.id);
+        gaugePrefs.tiles = [...set];
+        saveGaugePrefs();
+        applyGaugePrefs();
+      });
+      const span = document.createElement("span");
+      span.textContent = t.label;
+      label.appendChild(cb);
+      label.appendChild(span);
+      host.appendChild(label);
+    });
+  }
+  applyGaugePrefs();
 }
 
 // ---- Coolant gauge calibration builder ----
@@ -1051,12 +1171,48 @@ function handleOutputChange(changingId, el) {
 // ============================================================================
 let otaSelectedFile = null;
 
+// OTA two-step sequence: filesystem first, then firmware. Completed steps
+// persist in localStorage so the highlight survives the firmware reboot.
+const OTA_STEPS_KEY = 'oh_ota_steps';
+function otaLoadDone() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(OTA_STEPS_KEY) || '{}');
+    if (!raw.ts || Date.now() - raw.ts > 15 * 60 * 1000) return [];
+    return Array.isArray(raw.done) ? raw.done : [];
+  } catch (e) { return []; }
+}
+function otaSaveDone(done) {
+  localStorage.setItem(OTA_STEPS_KEY, JSON.stringify({ done, ts: Date.now() }));
+}
+function renderOtaSteps() {
+  const sel = document.getElementById('otaType');
+  const cur = sel ? sel.value : 'filesystem';
+  const done = otaLoadDone();
+  document.querySelectorAll('#otaSteps .ota-step').forEach((el) => {
+    const s = el.dataset.step;
+    el.classList.toggle('done', done.includes(s));
+    el.classList.toggle('active', s === cur && !done.includes(s));
+  });
+}
+function otaMarkDone(type) {
+  const done = otaLoadDone();
+  if (!done.includes(type)) done.push(type);
+  otaSaveDone(done);
+  renderOtaSteps();
+}
+
+// Set a status tile value as a coloured pill (state = ok|bad|warn|'').
+function setValuePill(id, state, text) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = text;
+  el.className = 'status-value pill' + (state ? ' ' + state : '');
+}
+
 function initOta() {
-  const dropZone = document.getElementById('otaDropZone');
   const fileInput = document.getElementById('otaFile');
-  const chooseBtn = document.getElementById('otaChooseBtn');
   const uploadBtn = document.getElementById('otaUploadBtn');
-  if (!dropZone || !fileInput || !uploadBtn) return;
+  if (!fileInput || !uploadBtn) return;
 
   // Populate firmware info
   fetch('/api/ota/info')
@@ -1068,31 +1224,21 @@ function initOta() {
     })
     .catch(() => { /* offline: leave placeholders */ });
 
-  const pick = () => fileInput.click();
-  if (chooseBtn) chooseBtn.addEventListener('click', (e) => { e.stopPropagation(); pick(); });
-  dropZone.addEventListener('click', pick);
-
   fileInput.addEventListener('change', () => {
     if (fileInput.files && fileInput.files.length) selectOtaFile(fileInput.files[0]);
   });
 
-  ['dragenter', 'dragover'].forEach(ev =>
-    dropZone.addEventListener(ev, (e) => {
-      e.preventDefault();
-      dropZone.classList.add('drag-over');
-    })
-  );
-  ['dragleave', 'drop'].forEach(ev =>
-    dropZone.addEventListener(ev, (e) => {
-      e.preventDefault();
-      dropZone.classList.remove('drag-over');
-    })
-  );
-  dropZone.addEventListener('drop', (e) => {
-    if (e.dataTransfer.files && e.dataTransfer.files.length) selectOtaFile(e.dataTransfer.files[0]);
-  });
-
   uploadBtn.addEventListener('click', startOtaUpload);
+
+  // OTA sequence: resume on firmware step after a filesystem upload, keep the
+  // step indicator in sync with the selected type.
+  const typeSel = document.getElementById('otaType');
+  if (typeSel) {
+    const done = otaLoadDone();
+    if (done.includes('filesystem') && !done.includes('firmware')) typeSel.value = 'firmware';
+    typeSel.addEventListener('change', renderOtaSteps);
+  }
+  renderOtaSteps();
 }
 
 function selectOtaFile(file) {
@@ -1103,6 +1249,8 @@ function selectOtaFile(file) {
   otaSelectedFile = file;
   const dropZone = document.getElementById('otaDropZone');
   if (dropZone) dropZone.classList.add('file-selected');
+  const uploadBtn = document.getElementById('otaUploadBtn');
+  if (uploadBtn) uploadBtn.disabled = false;
   setText('otaFileName', file.name);
   setOtaStatus('', '');
 }
@@ -1120,7 +1268,8 @@ function startOtaUpload() {
     return;
   }
   const type = (document.getElementById('otaType') || {}).value || 'firmware';
-  const url = type === 'filesystem' ? '/api/ota/fs' : '/api/ota';
+  const isFs = type === 'filesystem';
+  const url = isFs ? '/api/ota/fs' : '/api/ota';
   const uploadBtn = document.getElementById('otaUploadBtn');
   const progressWrap = document.getElementById('otaProgressWrap');
   const progressBar = document.getElementById('otaProgressBar');
@@ -1151,7 +1300,24 @@ function startOtaUpload() {
     if (ok) {
       if (progressBar) progressBar.style.width = '100%';
       if (progressLabel) progressLabel.textContent = '100%';
-      setOtaStatus('Update complete. Device rebooting...', 'success');
+      otaMarkDone(type);
+      if (isFs) {
+        // filesystem does not reboot — advance to the firmware step
+        const sel = document.getElementById('otaType');
+        if (sel) sel.value = 'firmware';
+        renderOtaSteps();
+        setOtaStatus('Filesystem updated. Now select and upload the firmware.', 'success');
+        otaSelectedFile = null;
+        const dz = document.getElementById('otaDropZone');
+        if (dz) dz.classList.remove('file-selected');
+        setText('otaFileName', '');
+        const fi = document.getElementById('otaFile');
+        if (fi) fi.value = '';
+        if (progressWrap) progressWrap.style.display = 'none';
+        if (uploadBtn) uploadBtn.disabled = true;
+      } else {
+        setOtaStatus('Update complete. Device rebooting...', 'success');
+      }
     } else {
       setOtaStatus('Update failed. Please try again.', 'error');
       if (progressWrap) progressWrap.style.display = 'none';
