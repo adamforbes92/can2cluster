@@ -1,6 +1,6 @@
 {
   "name": "Can2Cluster",
-  "version": "3.22",
+  "version": "3.23",
   "builds": [
     {
       "chipFamily": "ESP32",
