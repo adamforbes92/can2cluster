@@ -10,7 +10,6 @@ function initApp() {
   initCoolant();
   initOutputConflicts();
   initGaugeUI();
-  initOta();
   fetchSettings();  // Load settings once on page load
   fetchStatus();    // Initial status fetch
   setInterval(fetchStatus, 1000);  // Continue fetching live data only
@@ -1171,165 +1170,10 @@ function handleOutputChange(changingId, el) {
 // ============================================================================
 let otaSelectedFile = null;
 
-// OTA two-step sequence: filesystem first, then firmware. Completed steps
-// persist in localStorage so the highlight survives the firmware reboot.
-const OTA_STEPS_KEY = 'oh_ota_steps';
-function otaLoadDone() {
-  try {
-    const raw = JSON.parse(localStorage.getItem(OTA_STEPS_KEY) || '{}');
-    if (!raw.ts || Date.now() - raw.ts > 15 * 60 * 1000) return [];
-    return Array.isArray(raw.done) ? raw.done : [];
-  } catch (e) { return []; }
-}
-function otaSaveDone(done) {
-  localStorage.setItem(OTA_STEPS_KEY, JSON.stringify({ done, ts: Date.now() }));
-}
-function renderOtaSteps() {
-  const sel = document.getElementById('otaType');
-  const cur = sel ? sel.value : 'filesystem';
-  const done = otaLoadDone();
-  document.querySelectorAll('#otaSteps .ota-step').forEach((el) => {
-    const s = el.dataset.step;
-    el.classList.toggle('done', done.includes(s));
-    el.classList.toggle('active', s === cur && !done.includes(s));
-  });
-}
-function otaMarkDone(type) {
-  const done = otaLoadDone();
-  if (!done.includes(type)) done.push(type);
-  otaSaveDone(done);
-  renderOtaSteps();
-}
-
 // Set a status tile value as a coloured pill (state = ok|bad|warn|'').
 function setValuePill(id, state, text) {
   const el = document.getElementById(id);
   if (!el) return;
   el.textContent = text;
   el.className = 'status-value pill' + (state ? ' ' + state : '');
-}
-
-function initOta() {
-  const fileInput = document.getElementById('otaFile');
-  const uploadBtn = document.getElementById('otaUploadBtn');
-  if (!fileInput || !uploadBtn) return;
-
-  // Populate firmware info
-  fetch('/api/ota/info')
-    .then(r => r.json())
-    .then(info => {
-      setText('otaFwVersion', info.version || '--');
-      setText('otaHardware', info.hardware || '--');
-      setText('otaBoard', info.board || '--');
-    })
-    .catch(() => { /* offline: leave placeholders */ });
-
-  fileInput.addEventListener('change', () => {
-    if (fileInput.files && fileInput.files.length) selectOtaFile(fileInput.files[0]);
-  });
-
-  uploadBtn.addEventListener('click', startOtaUpload);
-
-  // OTA sequence: resume on firmware step after a filesystem upload, keep the
-  // step indicator in sync with the selected type.
-  const typeSel = document.getElementById('otaType');
-  if (typeSel) {
-    const done = otaLoadDone();
-    if (done.includes('filesystem') && !done.includes('firmware')) typeSel.value = 'firmware';
-    typeSel.addEventListener('change', renderOtaSteps);
-  }
-  renderOtaSteps();
-}
-
-function selectOtaFile(file) {
-  if (!file.name.toLowerCase().endsWith('.bin')) {
-    setOtaStatus('Please choose a .bin file', 'error');
-    return;
-  }
-  otaSelectedFile = file;
-  const dropZone = document.getElementById('otaDropZone');
-  if (dropZone) dropZone.classList.add('file-selected');
-  const uploadBtn = document.getElementById('otaUploadBtn');
-  if (uploadBtn) uploadBtn.disabled = false;
-  setText('otaFileName', file.name);
-  setOtaStatus('', '');
-}
-
-function setOtaStatus(msg, type) {
-  const el = document.getElementById('otaStatus');
-  if (!el) return;
-  el.textContent = msg;
-  el.className = 'ota-status' + (type ? ' ' + type : '');
-}
-
-function startOtaUpload() {
-  if (!otaSelectedFile) {
-    setOtaStatus('Select a .bin file first', 'error');
-    return;
-  }
-  const type = (document.getElementById('otaType') || {}).value || 'firmware';
-  const isFs = type === 'filesystem';
-  const url = isFs ? '/api/ota/fs' : '/api/ota';
-  const uploadBtn = document.getElementById('otaUploadBtn');
-  const progressWrap = document.getElementById('otaProgressWrap');
-  const progressBar = document.getElementById('otaProgressBar');
-  const progressLabel = document.getElementById('otaProgressLabel');
-
-  const formData = new FormData();
-  formData.append('update', otaSelectedFile, otaSelectedFile.name);
-
-  const xhr = new XMLHttpRequest();
-  xhr.open('POST', url);
-
-  if (uploadBtn) uploadBtn.disabled = true;
-  if (progressWrap) progressWrap.style.display = 'block';
-  if (progressBar) progressBar.style.width = '0%';
-  if (progressLabel) progressLabel.textContent = '0%';
-  setOtaStatus('Uploading...', '');
-
-  xhr.upload.addEventListener('progress', (e) => {
-    if (!e.lengthComputable) return;
-    const pct = Math.round((e.loaded / e.total) * 100);
-    if (progressBar) progressBar.style.width = pct + '%';
-    if (progressLabel) progressLabel.textContent = pct + '%';
-  });
-
-  xhr.addEventListener('load', () => {
-    let ok = false;
-    try { ok = JSON.parse(xhr.responseText).success === true; } catch (e) { ok = xhr.status === 200; }
-    if (ok) {
-      if (progressBar) progressBar.style.width = '100%';
-      if (progressLabel) progressLabel.textContent = '100%';
-      otaMarkDone(type);
-      if (isFs) {
-        // filesystem does not reboot — advance to the firmware step
-        const sel = document.getElementById('otaType');
-        if (sel) sel.value = 'firmware';
-        renderOtaSteps();
-        setOtaStatus('Filesystem updated. Now select and upload the firmware.', 'success');
-        otaSelectedFile = null;
-        const dz = document.getElementById('otaDropZone');
-        if (dz) dz.classList.remove('file-selected');
-        setText('otaFileName', '');
-        const fi = document.getElementById('otaFile');
-        if (fi) fi.value = '';
-        if (progressWrap) progressWrap.style.display = 'none';
-        if (uploadBtn) uploadBtn.disabled = true;
-      } else {
-        setOtaStatus('Update complete. Device rebooting...', 'success');
-      }
-    } else {
-      setOtaStatus('Update failed. Please try again.', 'error');
-      if (progressWrap) progressWrap.style.display = 'none';
-      if (uploadBtn) uploadBtn.disabled = false;
-    }
-  });
-
-  xhr.addEventListener('error', () => {
-    setOtaStatus('Upload failed. Check connection and retry.', 'error');
-    if (progressWrap) progressWrap.style.display = 'none';
-    if (uploadBtn) uploadBtn.disabled = false;
-  });
-
-  xhr.send(formData);
 }

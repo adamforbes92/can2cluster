@@ -286,6 +286,17 @@ static void sendCoolantCalState(AsyncWebServerRequest *request)
 
 void setupWebRoutes()
 {
+  // Shared OTA + Home WiFi routes FIRST: ota_manager's first route carries the
+  // filter that notes web activity for every request (otaWebClientActive()),
+  // and /api/wifi/sta must precede any /api/wifi... route of our own.
+  ota_config_t ocfg = otaDefaultConfig();
+  ocfg.fwVersion  = FW_VERSION;
+  ocfg.product    = "Can2Cluster";
+  ocfg.githubRepo = "adamforbes92/can2cluster"; // Releases/ + releases.json for "Check for updates"
+  otaManagerInit(&ocfg);
+  otaManagerAttach(server);
+  wifiManagerAttachSta(server);
+
   server.on("/api/settings", HTTP_GET, [](AsyncWebServerRequest *request)
             {
     JsonDocument doc;
@@ -725,13 +736,8 @@ void setupWebRoutes()
         request->send(ok ? 200 : 400, "application/json", response);
       });
 
-  // Standard OTA (firmware + filesystem): /api/ota, /api/ota/fs, /api/ota/info.
-  ota_config_t ocfg = otaDefaultConfig();
-  ocfg.fwVersion = FW_VERSION;
-  otaManagerInit(&ocfg);
-  otaManagerAttach(server);
-
-  // Static web UI with firmware cache-busting.
+  // "/" (the UI, or the recovery page when the filesystem holds no usable UI)
+  // + static files with no-cache revalidation.
   wifiManagerAttachStatic(server);
 
 }
@@ -776,7 +782,9 @@ void disconnectWifi()
 // off + drops the CPU clock. Power-cycle (ignition off/on) brings WiFi back.
 bool powerIsBusy()
 {
-  return WiFi.softAPgetStationNum() > 0 || otaInProgress();
+  // ... or a browser has hit us in the last 30 s (a phone on the home router
+  // in bridge mode is not an AP station).
+  return WiFi.softAPgetStationNum() > 0 || otaInProgress() || otaWebClientActive();
 }
 
 // ACTIVE -> REDUCED: close the web server cleanly before the radio drops. The

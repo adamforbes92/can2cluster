@@ -15,9 +15,9 @@
 #include <ESPmDNS.h>        // included for WiFi pages
 #include <OneButton.h>
 
-// V3.23 - shared Forbes Automotive UI theme; common wifi_manager (c2c.local)
-//         and ota_manager (firmware + filesystem OTA); per-product cache-busting.
-#define FW_VERSION "3.23"
+// V3.24 - OTA overhaul: shared ota_manager/wifi_manager v2 + data/ota.js
+//         (guided GitHub update, Home WiFi bridge mode, recovery page).
+#define FW_VERSION "3.24"
 
 #define COOLANT_CAL_MAX 12 // max calibration points for the coolant temp gauge
 // LEDC 10-bit resolution at the 80 MHz APB clock tops out at 80e6/1024 ≈ 78125 Hz.

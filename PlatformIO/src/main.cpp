@@ -20,6 +20,7 @@ Forbes-Automotive, 2025
 #include "can2cluster_io.h"
 #include "can2cluster_savvycan.h"
 #include "power_manager.h"
+#include "wifi_manager.h"
 
 // for GPS
 HardwareSerial ss(2); // UART2 for GPS (NEO-6M)
@@ -76,6 +77,8 @@ void loop() {
     tasksResumeAll();
     tempNeedleSweep = false;
   }
+
+  wifiManagerTick(); // Home WiFi (bridge mode): connection tracking + retry back-off
 
   delay(10);
 }
