@@ -289,11 +289,8 @@ void setupWebRoutes()
   // Shared OTA + Home WiFi routes FIRST: ota_manager's first route carries the
   // filter that notes web activity for every request (otaWebClientActive()),
   // and /api/wifi/sta must precede any /api/wifi... route of our own.
-  ota_config_t ocfg = otaDefaultConfig();
-  ocfg.fwVersion  = FW_VERSION;
-  ocfg.product    = "Can2Cluster";
-  ocfg.githubRepo = "adamforbes92/can2cluster"; // Releases/ + releases.json for "Check for updates"
-  otaManagerInit(&ocfg);
+  // otaManagerInit() has already run in connectWifi() - it has to, because
+  // wifiManagerInit() mounts the filesystem through otaFsMountSafe().
   otaManagerAttach(server);
   wifiManagerAttachSta(server);
 
@@ -753,6 +750,18 @@ void setupUI()
 void connectWifi()
 {
   DEBUG_WIFI("Begin wifi...");
+
+  // MUST precede wifiManagerInit(): that mounts the web-UI filesystem via
+  // otaFsMountSafe(), and an uninitialised ota_manager mounts with verbose
+  // off - so a failed mount passes silently, which is exactly the case you
+  // need the log for.
+  ota_config_t ocfg = otaDefaultConfig();
+  ocfg.fwVersion  = FW_VERSION;
+  ocfg.product    = "Can2Cluster";
+  ocfg.githubRepo = "adamforbes92/can2cluster"; // Releases/ + releases.json for "Check for updates"
+  ocfg.verbose    = serialDebugWifi;            // honour the project's WiFi debug gating
+  otaManagerInit(&ocfg);
+
   wifimgr_config_t wcfg = wifiDefaultConfig();
   wcfg.hostName  = wifiHostName;   // SoftAP SSID + hostname
   wcfg.mdnsName  = "c2c";          // -> http://c2c.local
