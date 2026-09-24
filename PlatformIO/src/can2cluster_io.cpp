@@ -113,6 +113,15 @@ constexpr uint32_t LEDC_COOLANT_MAX_DUTY = 1023; // 10-bit resolution
 constexpr uint32_t LEDC_DUTY_OFF = 0;
 constexpr uint32_t LEDC_DUTY_50 = 512; // 50% duty with 10-bit resolution (1024 levels)
 constexpr uint32_t LEDC_MIN_FREQ_HZ = 2;
+// LEDC low-speed mode latches a duty change on the timer's NEXT period, and
+// ledc_update_duty() spins with interrupts disabled until it does. The speed
+// and RPM timers legitimately run down to LEDC_MIN_FREQ_HZ (2 Hz = 2 km/h),
+// where that wait is 500 ms - well past the 300 ms interrupt watchdog, so the
+// board panics with "Interrupt wdt timeout on CPU1" in ledc_update_duty.
+// (It also cost ~500 ms per ledc_channel_config() at boot.)
+// So: every duty change is made while the timer is parked here, and the real
+// rate is set afterwards - a frequency change needs no duty latch.
+constexpr uint32_t LEDC_LATCH_FREQ_HZ = 5000;
 
 void setupLedcOutputs()
 {
@@ -120,7 +129,7 @@ void setupLedcOutputs()
   speedTimerConfig.speed_mode = LEDC_MODE;
   speedTimerConfig.timer_num = LEDC_SPEED_TIMER;
   speedTimerConfig.duty_resolution = LEDC_RESOLUTION;
-  speedTimerConfig.freq_hz = LEDC_MIN_FREQ_HZ;
+  speedTimerConfig.freq_hz = LEDC_LATCH_FREQ_HZ;
   speedTimerConfig.clk_cfg = LEDC_AUTO_CLK;
   ledc_timer_config(&speedTimerConfig);
 
@@ -138,7 +147,7 @@ void setupLedcOutputs()
   rpmTimerConfig.speed_mode = LEDC_MODE;
   rpmTimerConfig.timer_num = LEDC_RPM_TIMER;
   rpmTimerConfig.duty_resolution = LEDC_RESOLUTION;
-  rpmTimerConfig.freq_hz = LEDC_MIN_FREQ_HZ;
+  rpmTimerConfig.freq_hz = LEDC_LATCH_FREQ_HZ;
   rpmTimerConfig.clk_cfg = LEDC_AUTO_CLK;
   ledc_timer_config(&rpmTimerConfig);
 
@@ -168,11 +177,20 @@ void basicInit()
 {
 // basic initialisation - setup pins for IO & setup CAN for receiving...
 
-// if ANY Serial request is made, begin Serial
-#if serialDebug || serialDebugWifi || serialDebugEEP || serialDebugGPS || ChassisCANDebug || serialDebugPaddles || serialDebugIO || serialDebugDSG || serialDebugCAN || serialDebugI2C
+  // UNCONDITIONAL - do not put this back behind the debug flags.
+  //
+  // These two lines were the ONLY functional code anywhere behind a debug
+  // #if; everything else those flags guard is printing. That made a
+  // debug build and a release build genuinely different machines: with the
+  // flags off there is no settling delay before detectBoard()/i2cInit() and
+  // the radio comes up ~500 ms earlier, and the AP then fails to appear -
+  // a fault that vanishes the moment you switch debug on to look at it.
+  //
+  // Serial itself is harmless here: the SavvyCAN analyser re-opens UART0 at
+  // 1 Mbaud when it is enabled (can2cluster_savvycan.cpp), and on a DevKit
+  // UART0 is the USB bridge, so nothing else contends for the pins.
   Serial.begin(baudSerial);
   delay(500);
-#endif
   DEBUG("[Init] CAN-BUS to Cluster Initialising...");
 
   // Detect the board revision and bring up the I2C peripherals before anything
@@ -498,8 +516,10 @@ void setFrequencyRPM(long frequencyHz)
   ledc_channel_t activeChannel   = coilType ? LEDC_RPM_COIL_CHANNEL : LEDC_RPM_PIN_CHANNEL;
   ledc_channel_t inactiveChannel = coilType ? LEDC_RPM_PIN_CHANNEL  : LEDC_RPM_COIL_CHANNEL;
 
-  ledc_set_duty(LEDC_MODE, inactiveChannel, LEDC_DUTY_OFF);
-  ledc_update_duty(LEDC_MODE, inactiveChannel);
+  static ledc_channel_t onChannel = LEDC_RPM_COIL_CHANNEL;
+  static bool outputOn = false;
+
+  ledc_stop(LEDC_MODE, inactiveChannel, 0); // immediate, no duty latch
 
   if (frequencyHz > 0)
   {
@@ -508,14 +528,23 @@ void setFrequencyRPM(long frequencyHz)
     {
       targetFreq = LEDC_MIN_FREQ_HZ;
     }
+    if (!outputOn || onChannel != activeChannel)
+    {
+      if (outputOn && onChannel != activeChannel)
+        ledc_stop(LEDC_MODE, onChannel, 0); // coil/pin swapped under us
+      // Latch 50% duty while the timer is fast, THEN drop to the real rate.
+      ledc_set_freq(LEDC_MODE, LEDC_RPM_TIMER, LEDC_LATCH_FREQ_HZ);
+      ledc_set_duty(LEDC_MODE, activeChannel, LEDC_DUTY_50);
+      ledc_update_duty(LEDC_MODE, activeChannel);
+      onChannel = activeChannel;
+      outputOn = true;
+    }
     ledc_set_freq(LEDC_MODE, LEDC_RPM_TIMER, targetFreq);
-    ledc_set_duty(LEDC_MODE, activeChannel, LEDC_DUTY_50);
-    ledc_update_duty(LEDC_MODE, activeChannel);
   }
-  else
+  else if (outputOn)
   {
-    ledc_set_duty(LEDC_MODE, activeChannel, LEDC_DUTY_OFF);
-    ledc_update_duty(LEDC_MODE, activeChannel);
+    ledc_stop(LEDC_MODE, activeChannel, 0);
+    outputOn = false;
   }
 }
 
@@ -529,6 +558,8 @@ void setFrequencySpeed(long frequencyHz)
 
   lastFrequencyHz = frequencyHz;
 
+  static bool outputOn = false;
+
   if (frequencyHz > 0)
   {
     uint32_t targetFreq = static_cast<uint32_t>(frequencyHz);
@@ -536,14 +567,20 @@ void setFrequencySpeed(long frequencyHz)
     {
       targetFreq = LEDC_MIN_FREQ_HZ;
     }
+    if (!outputOn)
+    {
+      // Latch 50% duty while the timer is fast, THEN drop to the real rate.
+      ledc_set_freq(LEDC_MODE, LEDC_SPEED_TIMER, LEDC_LATCH_FREQ_HZ);
+      ledc_set_duty(LEDC_MODE, LEDC_SPEED_CHANNEL, LEDC_DUTY_50);
+      ledc_update_duty(LEDC_MODE, LEDC_SPEED_CHANNEL);
+      outputOn = true;
+    }
     ledc_set_freq(LEDC_MODE, LEDC_SPEED_TIMER, targetFreq);
-    ledc_set_duty(LEDC_MODE, LEDC_SPEED_CHANNEL, LEDC_DUTY_50);
-    ledc_update_duty(LEDC_MODE, LEDC_SPEED_CHANNEL);
   }
-  else
+  else if (outputOn)
   {
-    ledc_set_duty(LEDC_MODE, LEDC_SPEED_CHANNEL, LEDC_DUTY_OFF);
-    ledc_update_duty(LEDC_MODE, LEDC_SPEED_CHANNEL);
+    ledc_stop(LEDC_MODE, LEDC_SPEED_CHANNEL, 0); // idle low, applied at once
+    outputOn = false;
   }
 }
 

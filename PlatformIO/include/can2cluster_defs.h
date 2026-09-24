@@ -41,7 +41,7 @@
 #define eepRefresh 5000           // EEPROM save in ms
 #define labelRefresh 200          // wifi label refresh in ms
 #define broadcastSpeedRefresh 20  // speed sending via. CAN in ms
-#define broadcastGRARefresh 20    // paddle (GRA) sending via. CAN in ms
+#define broadcastGRARefresh 10    // paddle task period in ms: the shifter 0x0AF frame is 10 ms; GRA/0x3DD/0x128 go out on alternate ticks (20 ms)
 #define gearPause 20              // vTaskDelay (in _dsg.ino) for DSG refreshes
 #define rpmPause 50               // vTaskDelay for the RPM & Speed output tasks (50 ms = 20 Hz). The output frequency only changes on a real value change, so a faster loop just burns CPU and bogs down the other core-1 tasks.
 
@@ -483,16 +483,38 @@ extern uint32_t stackcheckError;
 
 // DSG paddle/tip status, verified directly at the shifter/paddle module on
 // Powertrain CAN (Tplus-log.csv / Tminus-log.csv: idle vs. tip+ held vs. tip-
-// held). 4-byte frame: D2 hi-nibble = paddle state, D2 lo-nibble = a
-// free-running 4-bit counter that keeps incrementing across state changes.
-// D1 = ~(D2 hi-nibble) in its top nibble, with a fixed 0x2 low nibble — this
-// is NOT a real per-frame CRC (D3/D4 don't affect it), just a complemented
-// companion byte. D3/D4 carry an unrelated multiplexed signal; sent as 0x00 0x00.
+// held; re-confirmed with Tplus-log(1).csv / Tminus-log(1).csv). The module
+// sends a PAIR of frames:
+//
+//   0x0AF, 4 bytes, 10 ms. D2 hi-nibble = paddle state, D2 lo-nibble = a
+//   free-running 4-bit counter (+1 every frame, never resets on a state
+//   change). D1 = ~(D2 hi-nibble) in its top nibble with a fixed 0x2 low
+//   nibble. D1 is NOT a checksum: it stays E2/A2/B2 across all 16 counter
+//   values and every D3/D4 value in >21k logged frames.
+//
+//   0x128, 3 bytes, 20 ms. D1 hi-nibble = same ~state nibble as 0x0AF D1
+//   (E idle / A up / B down), D1 lo-nibble = 0x1 or 0x5 (multiplex flag).
+//
+// D3/D4 of 0x0AF and D2/D3 of 0x128 carry a shared 6-slot multiplex, one slot
+// per 20 ms, 0x128 leading and both 0x0AF frames in the slot repeating it:
+//   slot 0: 128 = X1 00 00   0AF D3/D4 = 00 00
+//   slot 1: 128 = X5 V  00   0AF D3/D4 = V  01     (V ~ 0x14..0x19 in the logs)
+//   slot 2: 128 = X1 00 00   0AF D3/D4 = 00 00
+//   slot 3: 128 = X5 V  FF   0AF D3/D4 = ~V 01     (bitwise complement of V)
+//   slot 4: 128 = X1 00 00   0AF D3/D4 = 00 00
+//   slot 5: 128 = X5 FF n    0AF D3/D4 = M  01     (n = 0x00..0x13 rolling, M misc)
+// Real presses: a tap is held for >= ~450 ms (45 frames), a hold for as long as
+// the paddle is pulled. The gearbox never saw our old 80 ms pulse, hence the
+// dedicated hold below.
 // This supersedes the never-wired-up GETRIEBE_17 (0xB1) guess below.
 #define SHIFTER_PADDLE_ID 0x0AF
 #define SHIFTER_PADDLE_STATE_IDLE 0x1
 #define SHIFTER_PADDLE_STATE_DOWN 0x4
 #define SHIFTER_PADDLE_STATE_UP 0x5
+#define SHIFTER_PADDLE_COMPANION_ID 0x128 // 3-byte companion frame, 20 ms
+#define SHIFTER_PADDLE_HOLD_MS 500        // how long a paddle press is held on 0x0AF/0x128 (shortest real tap ~450 ms)
+#define SHIFTER_MUX_VALUE 0x16            // multiplex slot-1 value (slot 3 sends its complement); 0x16 is the most common real value
+#define SHIFTER_MUX_MISC 0x00             // multiplex slot-5 value; 0x00 is one of the values seen on the real bus
 
 // MQB Getriebe_11 GE_Fahrstufe (gear-lever position) values — byte 5 bits 2..5.
 // Verified against OpenHaldex MQB log "gears all inc tip and sport.csv".
