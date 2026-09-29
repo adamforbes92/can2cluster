@@ -20,7 +20,8 @@
 #define FW_VERSION "3.24"
 
 #define COOLANT_CAL_MAX 12 // max calibration points for the coolant temp gauge
-// LEDC 10-bit resolution at the 80 MHz APB clock tops out at 80e6/1024 ≈ 78125 Hz.
+// Coolant gauge PWM (the only LEDC output left; speed/RPM are GPTimer square
+// waves). LEDC 10-bit at the 80 MHz APB clock tops out at 80e6/1024 ≈ 78125 Hz.
 #define COOLANT_PWM_FREQ_MAX 78000
 
 /* Defines */

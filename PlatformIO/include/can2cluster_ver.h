@@ -58,5 +58,13 @@ V3.24 - OTA overhaul (shared ota_manager / wifi_manager v2 + data/ota.js, ported
         tools/make_release.py) plus a Home WiFi (bridge mode) card; power_manager
         holds WiFi up while any browser is active. Assets served no-cache (ETag)
         instead of the hand-bumped ?v=.
+        Speed and RPM outputs moved from LEDC to GPTimer square waves: on
+        Arduino-ESP32 3.3.x / IDF 5.5.2 the LEDC duty update spins with
+        interrupts off until the previous update latches (one timer period on
+        the ESP32), which at 1-2 Hz trips the 300 ms interrupt watchdog and
+        reboots the board. The 5 kHz "latch" workaround also pinned the
+        low-speed LEDC block to APB, so nothing under ~76 Hz was reachable.
+        Coolant PWM stays on LEDC (10 Hz min) but re-selects its clock source
+        on a frequency change instead of ledc_set_freq().
 
 */
