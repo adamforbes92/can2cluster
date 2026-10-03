@@ -65,6 +65,10 @@ bool vehicleBattLight = false;
 uint8_t GRA_counter = 0;
 uint8_t GRA_crc = 0;
 uint8_t shifterPaddleCounter = 0;
+volatile uint32_t shifterQueryRaw = 0;
+volatile uint32_t shifterQueryMs = 0;
+volatile uint32_t shifterRealSeenMs = 0;
+volatile uint8_t shifterTxState = 0;
 
 bool boolPadUp = false;
 bool boolPadDown = false;
@@ -122,6 +126,7 @@ bool testEML = false;
 bool testEPC = false;
 bool testReverse = false;
 String dsgParkMode = "None";  // DSG Park behavior: "None", "EML", or "EPC"
+String paddleOutput = PADDLE_OUTPUT_DEFAULT; // which paddle frame(s) to send
 
 // Coolant temperature gauge
 uint8_t coolantOutput = 0;       // 0=Off, 1=EML pin, 2=EPC pin

@@ -56,6 +56,7 @@ void readEEP() {
       pref.putUChar(dataKey.c_str(), broadcastSpeedData[i]);
     }
     pref.putString("dsgParkMode", dsgParkMode);
+    pref.putString("paddleOutput", paddleOutput);
     pref.putBool("autoDiagQuery", autoDiagQuery);
     pref.putBool("useAftermarket", useAftermarket);
     pref.putUInt("amSpeedID", aftermarketSpeedID);
@@ -139,6 +140,7 @@ void readEEP() {
       broadcastSpeedData[i] = pref.getUChar(dataKey.c_str(), 0);
     }
     dsgParkMode = pref.getString("dsgParkMode", "None");
+    paddleOutput = pref.getString("paddleOutput", PADDLE_OUTPUT_DEFAULT);
     autoDiagQuery = pref.getBool("autoDiagQuery", useTP20 || useUDS);
     useAftermarket = pref.getBool("useAftermarket", false);
     aftermarketSpeedID = pref.getUInt("amSpeedID", 0x200) & 0x7FF;
@@ -260,6 +262,7 @@ void writeEEP(void *args) {
       pref.putUChar(dataKey.c_str(), broadcastSpeedData[i]);
     }
     pref.putString("dsgParkMode", dsgParkMode);
+    pref.putString("paddleOutput", paddleOutput);
     pref.putBool("autoDiagQuery", autoDiagQuery);
     pref.putBool("useAftermarket", useAftermarket);
     pref.putUInt("amSpeedID", aftermarketSpeedID);

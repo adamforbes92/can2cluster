@@ -296,7 +296,11 @@ extern bool vehicleOilPressure; // current oil pressure (from Ford)
 extern bool vehicleBattLight;   // current battery light (from Ford)
 extern uint8_t GRA_counter;     // for paddle frames
 extern uint8_t GRA_crc;         // for paddle frames
-extern uint8_t shifterPaddleCounter; // free-running 4-bit counter for SHIFTER_PADDLE_ID
+extern uint8_t shifterPaddleCounter;         // free-running 4-bit counter for SHIFTER_PADDLE_ID
+extern volatile uint32_t shifterQueryRaw;    // last SHIFTER_PADDLE_QUERY_ID payload, packed D1<<16 | D2<<8 | D3
+extern volatile uint32_t shifterQueryMs;     // millis() when shifterQueryRaw was received (0 = never)
+extern volatile uint32_t shifterRealSeenMs;  // millis() when a real (factory) SHIFTER_PADDLE_ID frame last arrived (0 = never)
+extern volatile uint8_t shifterTxState;      // SHIFTER_PADDLE_STATE_UP/DOWN while a press is being held, else 0
 
 // external variables / triggers
 extern bool boolPadUp;                 // current EML light status
@@ -356,6 +360,7 @@ extern bool testEML;                      // bool to force turn on EML
 extern bool testEPC;                      // bool to force turn on EPC
 extern bool testReverse;                  // bool to force turn on Reverse
 extern String dsgParkMode;                // DSG Park behavior: "None", "EML", or "EPC"
+extern String paddleOutput;               // which paddle frame(s) to send: "All", "MQB", "Shifter", "PQ"
 
 // Coolant temperature gauge (PWM on a shared ULN2003 output, EML or EPC pin)
 extern uint8_t coolantOutput;                  // 0=Off, 1=EML pin, 2=EPC pin (mutually exclusive with that pin's light features)
@@ -473,49 +478,79 @@ extern uint32_t stackcheckError;
 #define DIAGNOSE_01 0x6B2   // diagnostics broadcast
 #define KOMBI_02 0x6B7      // instrument cluster broadcast
 
-// MQB DSG paddle/tip message. Captured from a real cluster ("Paddle Shifters
-// Filter Log.csv"): static carrier 08 04 20 00 FE 00 0A, last byte = paddle
-// state. No rolling counter/CRC (bytes 0/1 stay constant in the log).
+// MQB steering-wheel paddle message, captured on a customer's MQB car with
+// factory wheel paddles ("Paddle Shifters Filter Log.csv", 0x3DD only). This is
+// the paddle side of the car, NOT the gear selector, so it does not collide
+// with a selector that stays on the bus. 100 ms frame, no rolling counter or
+// CRC; static carrier 08 04 20 00 FE 00 0A (D1-D4 carry other slow-changing
+// signals in the log), last byte = paddle state. Real presses last 2..52
+// frames (120 ms .. 5 s), so an 80 ms pulse at 20 ms could be missed by a
+// consumer sampling at the real 100 ms rate - hence the rate/hold below.
 #define MQB_PADDLE_ID 0x3DD // last byte (data[7]) carries the paddle request
 #define MQB_PADDLE_NONE 0x00
 #define MQB_PADDLE_DOWN 0x01 // shift down
 #define MQB_PADDLE_UP 0x02   // shift up
-#define MQB_PADDLE_BOTH 0x03 // both paddles (unused by cluster, logged for completeness)
+#define MQB_PADDLE_BOTH 0x03 // both paddles (seen in the log)
+#define MQB_PADDLE_REFRESH_MS 100 // real frame period
+#define MQB_PADDLE_HOLD_MS 300    // how long a press is held (3 frames; real taps are >= 2)
 
-// DSG paddle/tip status, verified directly at the shifter/paddle module on
-// Powertrain CAN (Tplus-log.csv / Tminus-log.csv: idle vs. tip+ held vs. tip-
-// held; re-confirmed with Tplus-log(1).csv / Tminus-log(1).csv). The module
-// sends a PAIR of frames:
+// Which paddle frame(s) go on the bus when a paddle is pressed (web UI
+// drop-down, stored in NVS as "paddleOutput"):
+//   "All"     - PQ GRA 0x38A + MQB 0x3DD + selector 0x0AF (legacy behaviour)
+//   "MQB"     - MQB wheel-paddle frame 0x3DD only
+//   "Shifter" - MQB selector frame 0x0AF only (shadow / standalone)
+//   "PQ"      - PQ GRA 0x38A only
+#define PADDLE_OUTPUT_DEFAULT "All"
+
+// DSG paddle/tip status from the MQB gear selector module (part number
+// 5Q2 713 023 T, see below), captured on Powertrain CAN (Tplus-log.csv /
+// Tminus-log.csv, re-confirmed with Tplus-log(1).csv / Tminus-log(1).csv).
 //
-//   0x0AF, 4 bytes, 10 ms. D2 hi-nibble = paddle state, D2 lo-nibble = a
-//   free-running 4-bit counter (+1 every frame, never resets on a state
-//   change). D1 = ~(D2 hi-nibble) in its top nibble with a fixed 0x2 low
-//   nibble. D1 is NOT a checksum: it stays E2/A2/B2 across all 16 counter
-//   values and every D3/D4 value in >21k logged frames.
+//   0x0AF (shifter -> gearbox), 4 bytes, ~10 ms on the shifter's own clock.
+//   D2 hi-nibble = paddle state, D2 lo-nibble = free-running 4-bit counter
+//   (+1 every frame, never resets on a state change). D1 = ~(D2 hi-nibble) in
+//   its top nibble with a fixed 0x2 low nibble. D1 is NOT a checksum: it stays
+//   E2/A2/B2 across all 16 counter values and every D3/D4 value in >21k frames.
 //
-//   0x128, 3 bytes, 20 ms. D1 hi-nibble = same ~state nibble as 0x0AF D1
-//   (E idle / A up / B down), D1 lo-nibble = 0x1 or 0x5 (multiplex flag).
+//   0x128 (gearbox -> shifter), 3 bytes, 20 ms, in lockstep with Getriebe_11.
+//   D1 hi-nibble = the paddle state the gearbox has ACCEPTED (E idle / A up /
+//   B down, same encoding as 0x0AF D1). D1 lo-nibble 0x5 = a query the shifter
+//   must answer in its next 0x0AF frames (D3 = answer, D4 = 0x01); lo-nibble
+//   0x1 = no query (0x0AF D3/D4 = 00 00):
+//     128 X5 V  00  ->  0AF D3 = V         (echo)
+//     128 X5 V  FF  ->  0AF D3 = ~V        (bitwise complement)
+//     128 X5 FF n   ->  0AF D3 = IDENT[n]  (n = 0x00..0x13, part number string)
+//   The gearbox cycles idle / echo / idle / complement / idle / ident. The
+//   answers are 100% deterministic in the logs and IDENT decodes as ASCII
+//   "5Q2713023T  VL17" + four 0x00. We answer the live queries rather than
+//   replaying a fixed pattern, since a wrong answer presumably marks the shifter
+//   implausible and the gearbox then ignores its tip requests.
 //
-// D3/D4 of 0x0AF and D2/D3 of 0x128 carry a shared 6-slot multiplex, one slot
-// per 20 ms, 0x128 leading and both 0x0AF frames in the slot repeating it:
-//   slot 0: 128 = X1 00 00   0AF D3/D4 = 00 00
-//   slot 1: 128 = X5 V  00   0AF D3/D4 = V  01     (V ~ 0x14..0x19 in the logs)
-//   slot 2: 128 = X1 00 00   0AF D3/D4 = 00 00
-//   slot 3: 128 = X5 V  FF   0AF D3/D4 = ~V 01     (bitwise complement of V)
-//   slot 4: 128 = X1 00 00   0AF D3/D4 = 00 00
-//   slot 5: 128 = X5 FF n    0AF D3/D4 = M  01     (n = 0x00..0x13 rolling, M misc)
 // Real presses: a tap is held for >= ~450 ms (45 frames), a hold for as long as
 // the paddle is pulled. The gearbox never saw our old 80 ms pulse, hence the
 // dedicated hold below.
+//
+// Two modes, chosen automatically from whether a real 0x0AF has been seen in
+// the last SHIFTER_PADDLE_REAL_TIMEOUT_MS:
+//   SHADOW (factory selector on the bus, the normal install): we never send
+//   0x0AF on our own clock. During a press, every real 0x0AF is immediately
+//   re-sent with only the state nibble (and its complement in D1) swapped;
+//   the selector's counter and its live handshake answers are copied verbatim.
+//   A consumer that takes the last-received value sees a steady up/down with a
+//   counter that still increments by one per 10 ms. Idle = nothing sent.
+//   STANDALONE (no selector on the bus): we send 0x0AF ourselves every 10 ms
+//   and answer the 0x128 queries ourselves.
 // This supersedes the never-wired-up GETRIEBE_17 (0xB1) guess below.
 #define SHIFTER_PADDLE_ID 0x0AF
 #define SHIFTER_PADDLE_STATE_IDLE 0x1
 #define SHIFTER_PADDLE_STATE_DOWN 0x4
 #define SHIFTER_PADDLE_STATE_UP 0x5
-#define SHIFTER_PADDLE_COMPANION_ID 0x128 // 3-byte companion frame, 20 ms
-#define SHIFTER_PADDLE_HOLD_MS 500        // how long a paddle press is held on 0x0AF/0x128 (shortest real tap ~450 ms)
-#define SHIFTER_MUX_VALUE 0x16            // multiplex slot-1 value (slot 3 sends its complement); 0x16 is the most common real value
-#define SHIFTER_MUX_MISC 0x00             // multiplex slot-5 value; 0x00 is one of the values seen on the real bus
+#define SHIFTER_PADDLE_QUERY_ID 0x128       // gearbox -> shifter: accepted state + query (RX only)
+#define SHIFTER_PADDLE_QUERY_TIMEOUT_MS 100 // answer a query for at most this long after it arrived
+#define SHIFTER_PADDLE_HOLD_MS 500          // how long a paddle press is held on 0x0AF (shortest real tap ~450 ms)
+#define SHIFTER_PADDLE_REAL_TIMEOUT_MS 200  // a real 0x0AF within this long => shadow mode, else standalone
+#define SHIFTER_PADDLE_IDENT "5Q2713023T  VL17" // 16 chars, indices 16..19 answer 0x00
+#define SHIFTER_PADDLE_IDENT_LEN 20
 
 // MQB Getriebe_11 GE_Fahrstufe (gear-lever position) values — byte 5 bits 2..5.
 // Verified against OpenHaldex MQB log "gears all inc tip and sport.csv".

@@ -117,7 +117,8 @@ function initControls() {
     'aftermarketSpeedLittleEndian', 'aftermarketSpeedScale', 'aftermarketSpeedOffset',
     'dsgRatio1', 'dsgRatio2', 'dsgRatio3', 'dsgRatio4', 'dsgRatio5', 'dsgRatio6',
     'dsgFinal14', 'dsgFinal56', 'dsgTireCirc',
-    'testReverse', 'testEML', 'testEPC', 'diagTest'
+    'testReverse', 'testEML', 'testEPC', 'diagTest',
+    'paddleOutput'
   ];
   advancedInputs.forEach(id => {
     const el = document.getElementById(id);
@@ -319,6 +320,8 @@ async function fetchSettings() {
     if (useMPHEl) useMPHEl.checked = data.useMPH || false;
     applySpeedUnitLabels(data.useMPH);
     document.getElementById('dsgParkMode').value = data.dsgParkMode || 'None';
+    const paddleOutputEl = document.getElementById('paddleOutput');
+    if (paddleOutputEl) paddleOutputEl.value = data.paddleOutput || 'All';
 
     // Coolant gauge output
     const coolantOutputEl = document.getElementById('coolantOutput');

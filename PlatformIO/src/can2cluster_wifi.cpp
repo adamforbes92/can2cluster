@@ -314,6 +314,7 @@ void setupWebRoutes()
     doc["analyzerMode"] = analyzerMode;
     doc["analyzerSerial"] = analyzerSerial;
     doc["dsgParkMode"] = dsgParkMode;
+    doc["paddleOutput"] = paddleOutput;
 
     // Coolant gauge output
     doc["coolantOutput"] = coolantOutput == 1 ? "EML" : (coolantOutput == 2 ? "EPC" : "Off");
@@ -456,6 +457,7 @@ void setupWebRoutes()
     doc["shiftFlashes"] = shiftFlashes;
     doc["coilType"] = coilType;
     doc["dsgParkMode"] = dsgParkMode;
+    doc["paddleOutput"] = paddleOutput;
     
     // Advanced controls
     doc["testRPM"] = testRPM;
@@ -572,6 +574,13 @@ void setupWebRoutes()
       dsgParkMode = mode;
       applyCoolantExclusivity();
       settingApplied = true;
+    }
+    if (key == "paddleOutput") {
+      String mode = value.as<const char*>();
+      if (mode == "All" || mode == "MQB" || mode == "Shifter" || mode == "PQ") {
+        paddleOutput = mode;
+        settingApplied = true;
+      }
     }
     
     if (key == "shiftLight") {

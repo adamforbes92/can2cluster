@@ -165,6 +165,20 @@
                     </select>
                 </div>
             </section>
+
+            <section class="card">
+                <h2>DSG Paddle Output</h2>
+                <p class="hint">Which CAN frame a paddle press is sent as. Only active while the speed source is DSG.</p>
+                <div class="input-group">
+                    <label>Paddle Frame</label>
+                    <select id="paddleOutput">
+                        <option value="All">All (PQ + MQB + Selector)</option>
+                        <option value="MQB">MQB Wheel Paddles (0x3DD)</option>
+                        <option value="Shifter">MQB Selector Tip (0x0AF)</option>
+                        <option value="PQ">PQ GRA (0x38A)</option>
+                    </select>
+                </div>
+            </section>
         </div>
 
         <div class="page" id="advanced-page">

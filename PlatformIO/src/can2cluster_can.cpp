@@ -372,8 +372,27 @@ void onBodyRX(const twai_message_t &frame)
 
   case SHIFTER_PADDLE_ID:
   {
-    // Decode a real (non-emulated) tip up/down frame seen on the bus, e.g.
-    // from the factory shifter/paddle module. Debug-only — not wired into
+    // A real frame from the factory selector (we never receive our own TX).
+    // Its presence switches broadcastGRA() into shadow mode.
+    shifterRealSeenMs = millis();
+
+    // Shadow: while a paddle press is being held, re-send this exact frame
+    // straight away with only the state nibble swapped. Counter and the
+    // handshake answer bytes (D3/D4) are the selector's own, so they stay
+    // valid. Nothing is sent while idle. See SHIFTER_PADDLE_ID comment.
+    const uint8_t txState = shifterTxState;
+    if (txState != 0 && frame.data_length_code >= 4)
+    {
+      twai_message_t shadow = frame;
+      shadow.data[1] = (txState << 4) | (frame.data[1] & 0x0F);
+      shadow.data[0] = (~shadow.data[1] & 0xF0) | (frame.data[0] & 0x0F);
+      if (twai_transmit(&shadow, pdMS_TO_TICKS(5)) != ESP_OK)
+      { // failed, ignore - the next real frame is 10 ms away
+      }
+    }
+
+#if serialDebugPaddles
+    // Debug-only decode of the selector's own tip gate. Not wired into
     // padUpFunc/padDownFunc so it can't feed back into our own emulation.
     const uint8_t stateNibble = (frame.data[1] >> 4) & 0x0F;
     if (stateNibble == SHIFTER_PADDLE_STATE_UP)
@@ -384,6 +403,29 @@ void onBodyRX(const twai_message_t &frame)
     {
       DEBUG_PADDLES("Shifter CAN 0x%03X: paddle DOWN", SHIFTER_PADDLE_ID);
     }
+#endif
+    break;
+  }
+
+  case SHIFTER_PADDLE_QUERY_ID:
+  {
+    // Gearbox -> shifter. Latch the payload so broadcastGRA() can answer the
+    // query in its next 0x0AF frames (see SHIFTER_PADDLE_QUERY_ID comment).
+    shifterQueryRaw = ((uint32_t)frame.data[0] << 16) | ((uint32_t)frame.data[1] << 8) | frame.data[2];
+    shifterQueryMs = millis();
+
+#if serialDebugPaddles
+    // The hi-nibble is the paddle state the gearbox has accepted: the one
+    // place that proves our 0x0AF frames are being taken seriously.
+    static uint8_t lastAck = 0xFF;
+    const uint8_t ack = frame.data[0] >> 4;
+    if (ack != lastAck)
+    {
+      lastAck = ack;
+      DEBUG_PADDLES("Gearbox CAN 0x%03X: accepted paddle state %s", SHIFTER_PADDLE_QUERY_ID,
+                    (ack == 0xA) ? "UP" : (ack == 0xB) ? "DOWN" : (ack == 0xE) ? "idle" : "?");
+    }
+#endif
     break;
   }
 
@@ -441,21 +483,20 @@ void sendPaddleDownFrame()
 
 void broadcastGRA(void *args)
 {
-  // 0x01 = down, 0x02 = up, 0x03 = both. These values feed the PQ GRA frame
-  // (data[3]) and the emulated MQB paddle frame (data[7]) identically.
+  // 0x01 = down, 0x02 = up, 0x03 = both (MQB_PADDLE_* values). One latch feeds
+  // three outputs with their own hold times:
+  //   PQ GRA 0x38A      20 ms frame, 80 ms pulse (PQ only knows single up/down)
+  //   MQB paddle 0x3DD  100 ms frame, MQB_PADDLE_HOLD_MS
+  //   selector 0x0AF    10 ms frame (shadow or standalone), SHIFTER_PADDLE_HOLD_MS
+  // paddleOutput (web UI) picks which of them actually go on the bus.
   uint8_t activePaddleCmd = 0x00;
-  uint32_t activePaddleCmdUntilMs = 0; // PQ GRA / MQB 0x3DD short pulse expiry
-  uint32_t shifterHoldUntilMs = 0;     // shifter 0x0AF / 0x128 hold expiry
+  uint32_t graHoldUntilMs = 0;
+  uint32_t mqbHoldUntilMs = 0;
+  uint32_t shifterHoldUntilMs = 0;
 
-  // This task runs at the shifter's 10 ms frame rate (broadcastGRARefresh).
-  // Every other frame on here is a 20 ms frame and goes out on alternate ticks.
-  bool slowTick = false;
-
-  // 0x0AF / 0x128 share a 6-slot multiplex on their trailing bytes (see the
-  // SHIFTER_PADDLE_ID comment in can2cluster_defs.h). One slot per 20 ms; the
-  // 0x128 frame leads the slot and both 0x0AF frames in it repeat the same value.
-  uint8_t shifterMuxSlot = 0;
-  uint8_t shifterMuxCounter = 0; // slot-5 rolling value, 0x00..0x13
+  // This task runs at the selector's 10 ms frame rate (broadcastGRARefresh);
+  // the slower frames are divided down from it.
+  uint8_t tick = 0; // 0..9, wraps every 100 ms
 
   while (1)
   {
@@ -473,25 +514,29 @@ void broadcastGRA(void *args)
       padUpTxPending = false;
       padDownTxPending = false;
       activePaddleCmd = 0x00;
+      shifterTxState = 0;
       vTaskDelay(pdMS_TO_TICKS(broadcastGRARefresh));
       continue;
     }
 
-    slowTick = !slowTick;
+    tick = (tick + 1) % 10;
+    const bool tick20 = (tick % 2) == 0;
+    const bool tick100 = tick == 0;
 
-    const uint8_t graPulseMS = 80; // PQ GRA / 0x3DD: how long to hold the paddle signal high for (ms)
+    const bool sendPQ = (paddleOutput == "PQ") || (paddleOutput == "All");
+    const bool sendMQB = (paddleOutput == "MQB") || (paddleOutput == "All");
+    const bool sendShifter = (paddleOutput == "Shifter") || (paddleOutput == "All");
 
-    // Latch a fresh paddle press. The PQ/0x3DD frames get the short pulse they
-    // always had; the shifter frames are held for SHIFTER_PADDLE_HOLD_MS because
-    // the real module never reports a tap shorter than ~450 ms.
+    const uint8_t graPulseMS = 80; // PQ GRA: how long to hold the paddle signal high for (ms)
+
+    // Latch a fresh paddle press into all three hold timers.
+    uint8_t newCmd = 0x00;
     if (padUpTxPending && padDownTxPending)
     {
 #if serialDebugPaddles
       DEBUG_PADDLES("Paddle up/down triggered together");
 #endif
-      activePaddleCmd = MQB_PADDLE_BOTH;
-      activePaddleCmdUntilMs = millis() + graPulseMS;
-      shifterHoldUntilMs = millis() + SHIFTER_PADDLE_HOLD_MS;
+      newCmd = MQB_PADDLE_BOTH;
       padUpTxPending = false;
       padDownTxPending = false;
     }
@@ -500,9 +545,7 @@ void broadcastGRA(void *args)
 #if serialDebugPaddles
       DEBUG_PADDLES("Paddle up");
 #endif
-      activePaddleCmd = MQB_PADDLE_UP;
-      activePaddleCmdUntilMs = millis() + graPulseMS;
-      shifterHoldUntilMs = millis() + SHIFTER_PADDLE_HOLD_MS;
+      newCmd = MQB_PADDLE_UP;
       padUpTxPending = false;
     }
     else if (padDownTxPending)
@@ -510,41 +553,52 @@ void broadcastGRA(void *args)
 #if serialDebugPaddles
       DEBUG_PADDLES("Paddle down");
 #endif
-      activePaddleCmd = MQB_PADDLE_DOWN;
-      activePaddleCmdUntilMs = millis() + graPulseMS;
-      shifterHoldUntilMs = millis() + SHIFTER_PADDLE_HOLD_MS;
+      newCmd = MQB_PADDLE_DOWN;
       padDownTxPending = false;
     }
+    if (newCmd != 0x00)
+    {
+      const uint32_t now = millis();
+      activePaddleCmd = newCmd;
+      graHoldUntilMs = now + graPulseMS;
+      mqbHoldUntilMs = now + MQB_PADDLE_HOLD_MS;
+      shifterHoldUntilMs = now + SHIFTER_PADDLE_HOLD_MS;
+    }
 
-    uint8_t paddleCmd = 0x00;  // what the PQ GRA / MQB 0x3DD frames carry this tick
-    uint8_t shifterCmd = 0x00; // what the shifter 0x0AF / 0x128 frames carry this tick
+    uint8_t graCmd = 0x00;     // what the PQ GRA frame carries this tick
+    uint8_t mqbCmd = 0x00;     // what the MQB 0x3DD frame carries this tick
+    uint8_t shifterCmd = 0x00; // what the selector 0x0AF frame carries this tick
     if (activePaddleCmd != 0x00)
     {
       const uint32_t now = millis();
-      if ((int32_t)(now - activePaddleCmdUntilMs) < 0)
+      if ((int32_t)(now - graHoldUntilMs) < 0)
       {
-        paddleCmd = activePaddleCmd;
+        graCmd = activePaddleCmd;
+      }
+      if ((int32_t)(now - mqbHoldUntilMs) < 0)
+      {
+        mqbCmd = activePaddleCmd;
       }
       if ((int32_t)(now - shifterHoldUntilMs) < 0)
       {
         shifterCmd = activePaddleCmd;
       }
-      if (paddleCmd == 0x00 && shifterCmd == 0x00)
+      if (graCmd == 0x00 && mqbCmd == 0x00 && shifterCmd == 0x00)
       {
         activePaddleCmd = 0x00;
       }
     }
 
-    if (slowTick)
+    // --- PQ GRA frame (emulated, 20 ms): rolling counter + XOR checksum. PQ
+    // only recognises a single up/down, so a simultaneous press sends no pulse. ---
+    if (sendPQ && tick20)
     {
-      // --- PQ GRA frame (emulated, 20 ms): rolling counter + XOR checksum. PQ
-      // only recognises a single up/down, so a simultaneous press sends no pulse. ---
       twai_message_t broadcastGRA{};
       broadcastGRA.identifier = GRA_ID;
       broadcastGRA.data_length_code = 4;
       broadcastGRA.data[1] = 0x00;        // always zero
       broadcastGRA.data[2] = GRA_counter; // full 8-bit rolling counter (0x00 > 0xFF)
-      broadcastGRA.data[3] = (paddleCmd == MQB_PADDLE_BOTH) ? 0x00 : paddleCmd;
+      broadcastGRA.data[3] = (graCmd == MQB_PADDLE_BOTH) ? 0x00 : graCmd;
 
       GRA_crc = 0;
       for (uint8_t i = 2; i < 5; i++)
@@ -558,10 +612,13 @@ void broadcastGRA(void *args)
       }
 
       GRA_counter++;
+    }
 
-      // --- MQB paddle frame (emulated, 20 ms): the car normally sends 0x3DD;
-      // here we generate it. Static carrier captured from a real cluster, last
-      // byte is the paddle state. No rolling counter/CRC (bytes 0/1 are constant). ---
+    // --- MQB wheel-paddle frame (emulated, 100 ms): static carrier from a
+    // customer's MQB capture, last byte is the paddle state. No counter/CRC.
+    // See MQB_PADDLE_ID comment. ---
+    if (sendMQB && tick100)
+    {
       twai_message_t mqbPaddle{};
       mqbPaddle.identifier = MQB_PADDLE_ID;
       mqbPaddle.data_length_code = 8;
@@ -572,90 +629,79 @@ void broadcastGRA(void *args)
       mqbPaddle.data[4] = 0xFE;
       mqbPaddle.data[5] = 0x00;
       mqbPaddle.data[6] = 0x0A;
-      mqbPaddle.data[7] = paddleCmd;
+      mqbPaddle.data[7] = mqbCmd;
 
       if (twai_transmit(&mqbPaddle, pdMS_TO_TICKS(100)) != ESP_OK)
       { // failed, ignore
       }
     }
 
-    // --- Shifter paddle frames (emulated): real IDs/encoding verified directly
-    // at the shifter module (see SHIFTER_PADDLE_ID comment). ---
+    // --- Selector paddle frame 0x0AF: real ID/encoding verified directly at
+    // the selector module (see SHIFTER_PADDLE_ID comment). ---
     const uint8_t shifterState = (shifterCmd == MQB_PADDLE_UP)     ? SHIFTER_PADDLE_STATE_UP
                                  : (shifterCmd == MQB_PADDLE_DOWN) ? SHIFTER_PADDLE_STATE_DOWN
                                                                    : SHIFTER_PADDLE_STATE_IDLE;
-    const uint8_t shifterInvNibble = (~shifterState & 0x0F) << 4; // E0 idle / A0 up / B0 down
 
-    // Multiplex content for this 20 ms slot.
-    uint8_t muxD3 = 0x00, muxD4 = 0x00;                 // 0x0AF D3/D4
-    uint8_t compLo = 0x1, compD2 = 0x00, compD3 = 0x00; // 0x128 D1 lo-nibble, D2, D3
-    switch (shifterMuxSlot)
+    // Publish the held state for the shadow path in onBodyRX(); 0 keeps it quiet.
+    shifterTxState = (!sendShifter || shifterState == SHIFTER_PADDLE_STATE_IDLE) ? 0 : shifterState;
+
+    if (!sendShifter)
     {
-    case 1:
-      muxD3 = SHIFTER_MUX_VALUE;
-      muxD4 = 0x01;
-      compLo = 0x5;
-      compD2 = SHIFTER_MUX_VALUE;
-      compD3 = 0x00;
-      break;
-    case 3:
-      muxD3 = (uint8_t)~SHIFTER_MUX_VALUE;
-      muxD4 = 0x01;
-      compLo = 0x5;
-      compD2 = SHIFTER_MUX_VALUE;
-      compD3 = 0xFF;
-      break;
-    case 5:
-      muxD3 = SHIFTER_MUX_MISC;
-      muxD4 = 0x01;
-      compLo = 0x5;
-      compD2 = 0xFF;
-      compD3 = shifterMuxCounter;
-      break;
-    default: // slots 0, 2, 4: empty
-      break;
+      vTaskDelay(pdMS_TO_TICKS(broadcastGRARefresh));
+      continue;
     }
 
-    if (slowTick)
+    // Shadow mode: the factory selector is on the bus, so it owns 0x0AF.
+    // onBodyRX() re-sends its frames with our state during a press; sending
+    // our own free-running frame here would only collide with it.
+    const uint32_t realSeenMs = shifterRealSeenMs;
+    if (realSeenMs != 0 && (millis() - realSeenMs) < SHIFTER_PADDLE_REAL_TIMEOUT_MS)
     {
-      // 0x128 companion (20 ms) leads the slot.
-      twai_message_t shifterCompanion{};
-      shifterCompanion.identifier = SHIFTER_PADDLE_COMPANION_ID;
-      shifterCompanion.data_length_code = 3;
-      shifterCompanion.data[0] = shifterInvNibble | compLo;
-      shifterCompanion.data[1] = compD2;
-      shifterCompanion.data[2] = compD3;
+      vTaskDelay(pdMS_TO_TICKS(broadcastGRARefresh));
+      continue;
+    }
 
-      if (twai_transmit(&shifterCompanion, pdMS_TO_TICKS(100)) != ESP_OK)
-      { // failed, ignore
+    // Standalone mode (no selector on the bus): send 0x0AF every 10 ms and
+    // answer the gearbox's latest 0x128 query ourselves, exactly as the
+    // factory selector does; with no recent query D3/D4 stay 00 00.
+    uint8_t answerD3 = 0x00, answerD4 = 0x00;
+    const uint32_t queryMs = shifterQueryMs;
+    if (queryMs != 0 && (millis() - queryMs) < SHIFTER_PADDLE_QUERY_TIMEOUT_MS)
+    {
+      const uint32_t q = shifterQueryRaw;
+      const uint8_t qD1 = (q >> 16) & 0xFF, qD2 = (q >> 8) & 0xFF, qD3 = q & 0xFF;
+      if ((qD1 & 0x0F) == 0x5)
+      {
+        static const char ident[] = SHIFTER_PADDLE_IDENT;
+        answerD4 = 0x01;
+        if (qD2 != 0xFF)
+        {
+          answerD3 = (qD3 == 0xFF) ? (uint8_t)~qD2 : qD2; // complement / echo
+        }
+        else if (qD3 < sizeof(ident) - 1)
+        {
+          answerD3 = (uint8_t)ident[qD3]; // part number byte n
+        }
+        else
+        {
+          answerD3 = 0x00; // n >= 16 (up to 0x13) answers 0x00 on the real module
+        }
       }
     }
 
-    // 0x0AF (10 ms): D2 hi-nibble = state, lo-nibble = free-running counter;
-    // D1 = complemented state nibble with a fixed 0x2 low nibble.
     twai_message_t shifterPaddle{};
     shifterPaddle.identifier = SHIFTER_PADDLE_ID;
     shifterPaddle.data_length_code = 4;
     shifterPaddle.data[1] = (shifterState << 4) | (shifterPaddleCounter & 0x0F);
-    shifterPaddle.data[0] = shifterInvNibble | 0x02;
-    shifterPaddle.data[2] = muxD3;
-    shifterPaddle.data[3] = muxD4;
+    shifterPaddle.data[0] = (~shifterPaddle.data[1] & 0xF0) | 0x02;
+    shifterPaddle.data[2] = answerD3;
+    shifterPaddle.data[3] = answerD4;
 
     if (twai_transmit(&shifterPaddle, pdMS_TO_TICKS(100)) != ESP_OK)
     { // failed, ignore
     }
 
     shifterPaddleCounter++;
-
-    if (!slowTick)
-    {
-      // Second 0x0AF frame of the slot has gone out: advance the multiplex.
-      if (shifterMuxSlot == 5)
-      {
-        shifterMuxCounter = (shifterMuxCounter + 1) % 0x14; // 0x00..0x13 as on the real bus
-      }
-      shifterMuxSlot = (shifterMuxSlot + 1) % 6;
-    }
 
     vTaskDelay(pdMS_TO_TICKS(broadcastGRARefresh));
   }
