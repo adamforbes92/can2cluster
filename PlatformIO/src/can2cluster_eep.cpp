@@ -56,7 +56,7 @@ void readEEP() {
       pref.putUChar(dataKey.c_str(), broadcastSpeedData[i]);
     }
     pref.putString("dsgParkMode", dsgParkMode);
-    pref.putString("paddleOutput", paddleOutput);
+    pref.putString("paddleMode", paddleOutput); // V4.01 key (see the migration below)
     pref.putBool("autoDiagQuery", autoDiagQuery);
     pref.putBool("useAftermarket", useAftermarket);
     pref.putUInt("amSpeedID", aftermarketSpeedID);
@@ -140,7 +140,27 @@ void readEEP() {
       broadcastSpeedData[i] = pref.getUChar(dataKey.c_str(), 0);
     }
     dsgParkMode = pref.getString("dsgParkMode", "None");
-    paddleOutput = pref.getString("paddleOutput", PADDLE_OUTPUT_DEFAULT);
+
+    // Paddle output. Up to V4.00 it was saved as "paddleOutput" and only worked
+    // with DSG as the speed source; "Shifter" (selector 0x0AF) is gone. Carry an
+    // older choice across once, keeping the car doing what it did before. The
+    // old key is left alone, so going back to V4.00 still finds its setting.
+    if (pref.isKey("paddleMode")) {
+      paddleOutput = pref.getString("paddleMode", PADDLE_OUTPUT_DEFAULT);
+    } else {
+      String oldChoice = pref.getString("paddleOutput", "All");
+      if (!useDSG) {
+        paddleOutput = "Off"; // the old firmware sent nothing unless DSG was the speed source
+      } else if (oldChoice == "PQ") {
+        paddleOutput = "PQ";
+      } else if (oldChoice == "MQB" || oldChoice == "Shifter") {
+        paddleOutput = "MQB"; // the selector frame never worked, 0x3DD is the MQB paddle frame
+      } else {
+        paddleOutput = "All"; // "All" was PQ + MQB + selector, now PQ + MQB
+      }
+      pref.putString("paddleMode", paddleOutput);
+    }
+
     autoDiagQuery = pref.getBool("autoDiagQuery", useTP20 || useUDS);
     useAftermarket = pref.getBool("useAftermarket", false);
     aftermarketSpeedID = pref.getUInt("amSpeedID", 0x200) & 0x7FF;
@@ -159,7 +179,20 @@ void readEEP() {
     dsgFinalDrive56 = pref.getFloat("dsgFinal56", dsgFinalDrive56);
     dsgTireCirc = pref.getFloat("dsgTireCirc", dsgTireCirc);
 
-    coolantOutput = pref.getUChar("coolOut", 0);
+    coolantOutput = pref.getUChar("coolOut", COOLANT_OFF);
+#if BOARD_S3
+    // S3: the gauge only has its own pin - any saved "on" choice means that pin
+    if (coolantOutput != COOLANT_OFF)
+    {
+      coolantOutput = COOLANT_ON_GAUGE;
+    }
+#else
+    // DevKit: there's no dedicated gauge pin, so only EML/EPC/Off are valid
+    if (coolantOutput != COOLANT_ON_EML && coolantOutput != COOLANT_ON_EPC)
+    {
+      coolantOutput = COOLANT_OFF;
+    }
+#endif
     coolantPwmFreq = pref.getUInt("coolFreq", 10000);
     coolantWarnTemp = pref.getUChar("coolWarn", 120);
     coolantCalCount = pref.getUChar("coolCnt", 0);
@@ -262,7 +295,7 @@ void writeEEP(void *args) {
       pref.putUChar(dataKey.c_str(), broadcastSpeedData[i]);
     }
     pref.putString("dsgParkMode", dsgParkMode);
-    pref.putString("paddleOutput", paddleOutput);
+    pref.putString("paddleMode", paddleOutput);
     pref.putBool("autoDiagQuery", autoDiagQuery);
     pref.putBool("useAftermarket", useAftermarket);
     pref.putUInt("amSpeedID", aftermarketSpeedID);

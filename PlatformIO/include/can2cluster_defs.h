@@ -15,14 +15,38 @@
 #include <ESPmDNS.h>        // included for WiFi pages
 #include <OneButton.h>
 
-// V3.24 - OTA overhaul: shared ota_manager/wifi_manager v2 + data/ota.js
-//         (guided GitHub update, Home WiFi bridge mode, recovery page).
-#define FW_VERSION "3.24"
+// V4.00 - two boards from one codebase: ESP32 DevKit + ESP32-S3 board.
+//         S3 gets the dedicated coolant gauge output (MCP4725 current sink).
+// V4.01 - MQB paddles rebuilt from the Tplus/Tminus log review (see MQB_PADDLES.md).
+#define FW_VERSION "4.01"
+
+// ===== Board =====
+// Which PCB this firmware is built for. Do NOT change it here - pick the env in
+// platformio.ini instead ("esp32doit-devkit-v1" or "esp32-s3"), which sets
+// -DBOARD_DEVKIT=1 or -DBOARD_S3=1.
+#ifndef BOARD_S3
+#define BOARD_S3 0 // 0 = ESP32 DevKit board, 1 = ESP32-S3 board
+#endif
+
+#if BOARD_S3
+#define BOARD_ID "esp32s3"           // board id used by OTA / releases.json (must match make_release.py)
+#define BOARD_NAME "ESP32-S3 board"  // shown on the web page
+#else
+#define BOARD_ID "esp32"             // board id used by OTA / releases.json (must match make_release.py)
+#define BOARD_NAME "ESP32 DevKit board" // shown on the web page
+#endif
 
 #define COOLANT_CAL_MAX 12 // max calibration points for the coolant temp gauge
-// Coolant gauge PWM (the only LEDC output left; speed/RPM are GPTimer square
-// waves). LEDC 10-bit at the 80 MHz APB clock tops out at 80e6/1024 ≈ 78125 Hz.
+// Coolant gauge PWM (DevKit only - the only LEDC output left; speed/RPM are
+// GPTimer square waves). LEDC 10-bit at the 80 MHz APB clock tops out at
+// 80e6/1024 ≈ 78125 Hz.
 #define COOLANT_PWM_FREQ_MAX 78000
+
+// Where the coolant gauge is driven from (the value saved as coolantOutput)
+#define COOLANT_OFF 0       // coolant gauge not used
+#define COOLANT_ON_EML 1    // DevKit: PWM on the EML output (EML light can't be used)
+#define COOLANT_ON_EPC 2    // DevKit: PWM on the EPC output (EPC light can't be used)
+#define COOLANT_ON_GAUGE 3  // S3: dedicated COOLANT_OUT pin (J1 pin 16), current sink from the MCP4725
 
 /* Defines */
 // Debug statements
@@ -35,14 +59,14 @@
 #define serialDebugDSG 0     // for DSG Serial feedback
 #define serialDebugIO 0      // for General IO Serial feedback
 #define serialDebugCAN 0     // for CAN/TWAI driver Serial feedback
-#define serialDebugI2C 0     // for I2C (board/MCP4725/TCA9554) Serial feedback
+#define serialDebugI2C 0     // for I2C (S3 board MCP4725 coolant DAC) Serial feedback
 #define detailedDebugStack 0 // for showing stack usage of each task (in showState() task)
 
 #define serialMonitorRefresh 1000 // serial monitor feedback in ms
 #define eepRefresh 5000           // EEPROM save in ms
 #define labelRefresh 200          // wifi label refresh in ms
 #define broadcastSpeedRefresh 20  // speed sending via. CAN in ms
-#define broadcastGRARefresh 10    // paddle task period in ms: the shifter 0x0AF frame is 10 ms; GRA/0x3DD/0x128 go out on alternate ticks (20 ms)
+#define broadcastPaddlesRefresh 10 // paddle task period in ms: reads the paddles every 10 ms; PQ GRA goes out every 2nd loop (20 ms), MQB 0x3DD every 10th (100 ms) or straight away on a change
 #define gearPause 20              // vTaskDelay (in _dsg.ino) for DSG refreshes
 #define rpmPause 50               // vTaskDelay for the RPM & Speed output tasks (50 ms = 20 Hz). The output frequency only changes on a real value change, so a faster loop just burns CPU and bogs down the other core-1 tasks.
 
@@ -82,6 +106,52 @@ extern bool useEMLShiftLight;    // bool to use the EML as a shift light
 extern uint16_t stepRPM;
 extern uint16_t stepSpeed;
 
+#if BOARD_S3
+// ===== Pins - ESP32-S3 board =====
+// Taken from PCB/ProPrj_can2clusterV4-s3-reva_2026-10-03 (module U14,
+// ESP32-S3-WROOM-1-N16R8). Module pin number in brackets.
+// Every output goes through the TPL7407 driver (U12): ESP pin HIGH = output pulled to ground.
+
+// setup - pins (output)
+#define pinRX_CAN 14         // CAN0_RX from TCAN1044 RXD (module pin 22)
+#define pinTX_CAN 13         // CAN0_TX to TCAN1044 TXD (module pin 21)
+#define pinCAN_Standby 12    // CAN0_STANDBY to TCAN1044 STB: LOW = normal, HIGH = standby (module pin 20)
+#define pinCAN_Term 1        // CAN_TERM_EN: LOW = 120R termination on, input = off (module pin 39)
+#define pinRX_GPS 17         // GPS_TX net = GPS module's TX -> ESP RX (GPS header pin 3, module pin 10)
+#define pinTX_GPS 18         // GPS_RX net = ESP TX -> GPS module's RX (GPS header pin 2, module pin 11)
+#define pinCoil 11           // ESP_MK2RPM: MK2/high output coil trigger (module pin 19)
+#define pinEPC 39            // ESP_EPC: EPC light output (module pin 32)
+#define pinEML 40            // ESP_EML: EML light output (module pin 33)
+#define pinRPM 10            // ESP_RPM: RPM square wave output (module pin 18)
+#define pinSpeed 9           // ESP_SPEED: speed square wave output (module pin 17)
+#define pinReverse 38        // ESP_REV: reverse light MOSFET (module pin 31)
+#define pinOutputPullUp 41   // ESP_PU12: HIGH = 12V pull-ups on Speed/RPM/EML/EPC outputs (Q4) (module pin 34)
+#define pinSpeedPullUp 47    // ESP_SPD_PU: HIGH = 12V pull-up on the hall speed input (Q6/Q5) (module pin 24)
+#define pinSpeedPullDown 48  // ESP_SPD_PD: HIGH = 4k7 pull-down on the hall speed input (U12 ch1) (module pin 25)
+#define hasOnboardLED 0      // no LED on the S3 board
+
+// setup - pins (inputs)
+#define pinPaddleUp 42       // ESP_UP_PAD: DSG paddle up, LOW = pressed (U10 buffer, module pin 35)
+#define pinPaddleDown 21     // ESP_DOWN_PAD: DSG paddle down, LOW = pressed (U10 buffer, module pin 23)
+#define pinHallSensor 16     // ESP_SPEED_IN: hall speed sensor (U9 buffer, module pin 9)
+#define pinVR 8              // VR_COUT: VR conditioner (MAX9924) output, 3V3 pull-up R6 (module pin 12)
+#define pinRpmPulse 15       // ESP_RPM_IN: engine RPM pulse (U9 buffer, module pin 8)
+#define pinBoardVersion 4    // BOARD_VER: analogue board-ID divider (R34 to ground) (module pin 4)
+
+// setup - I2C bus (only the coolant DAC lives on it)
+#define pinI2C_SDA 5         // ESP_SDA, 10k pull-up R22 (module pin 5)
+#define pinI2C_SCL 6         // ESP_SCL, 10k pull-up R23 (module pin 6)
+#define I2C_FREQ_HZ 400000UL // I2C clock speed (MCP4725 fast mode)
+#define MCP4725_ADDR 0x60    // coolant gauge DAC (U5, MCP4725A0, A0 grounded)
+#define MCP4725_MAX 4095     // 12-bit DAC full scale = full current through the gauge
+
+// S3 board switches. Fixed at boot for now - set them here.
+#define useCANTermination 0  // 1 = switch the 120R CAN termination on (bench / end-of-bus only) ** CAN CHANGE THIS **
+#define useOutputPullUp 1    // 1 = 12V pull-ups on Speed/RPM/EML/EPC (needed for clusters with no pull-up of their own) ** CAN CHANGE THIS **
+#define speedInputBias 1     // hall speed input: 0 = none, 1 = 12V pull-up (open-collector hall), 2 = pull-down ** CAN CHANGE THIS **
+
+#else
+// ===== Pins - ESP32 DevKit board =====
 // setup - pins (output)
 #define pinRX_CAN 17  // pin output for SN65HVD230 (CAN_RX)
 #define pinTX_CAN 16  // pin output for SN65HVD230 (CAN_TX)
@@ -93,40 +163,16 @@ extern uint16_t stepSpeed;
 #define pinRPM 22     // pin output for RPM
 #define pinSpeed 23   // pin output for Speed
 #define onboardLED 2  // pin onboard LED
+#define hasOnboardLED 1 // the DevKit has a blue LED on GPIO2
 #define pinReverse 26 // pin output for reverse mosfet
 
 // setup - pins (inputs)
-#define pinPaddleUp 34   // pin input for DSG paddle up (OLD board only)
-#define pinPaddleDown 35 // pin input for DSG paddle down (OLD board only)
+#define pinPaddleUp 34   // pin input for DSG paddle up
+#define pinPaddleDown 35 // pin input for DSG paddle down
 #define pinHallSensor 25 // pin input for Hall Sensor
 #define pinVR 27         // pin input for variable-reluctance (VR) speed sensor (conditioner digital output, ext pull-up to 3.3V)
 #define pinRpmPulse 39   // pin input for engine RPM pulse
-
-// setup - pins (new board / I2C)
-// NOTE: on the NEW board GPIO21/19 become the I2C bus and GPIO34 becomes the
-// TCA9554 interrupt — the same numbers used above for EPC/EML/paddle on the OLD
-// board. Which meaning applies is chosen at runtime via isNewBoard.
-#define pinBoardSense 32 // board revision sense: LOW (grounded) = new I2C board
-#define pinI2C_SDA 21    // I2C data  (new board)
-#define pinI2C_SCL 19    // I2C clock (new board, non-default)
-#define pinTCA_INT 34    // TCA9554 interrupt input (new board)
-#define I2C_FREQ_HZ 400000UL
-
-// Chassis CAN moves on the NEW board (GPIO16/26 are reused): RX=16, TX=4.
-#define pinRX_CAN_NEW 16 // chassis CAN RX (new board)
-#define pinTX_CAN_NEW 4  // chassis CAN TX (new board)
-
-// I2C device addresses (new board)
-#define MCP4725_ADDR 0x60 // coolant gauge DAC -> op-amp -> BSS138 gate
-#define TCA9554_ADDR 0x20 // I/O expander (A0/A1/A2 grounded)
-#define MCP4725_MAX 4095  // 12-bit DAC full scale
-
-// TCA9554 port bit assignments (new board)
-#define TCA_BIT_REVERSE 0 // P0.0 output
-#define TCA_BIT_EPC     1 // P0.1 output
-#define TCA_BIT_EML     2 // P0.2 output
-#define TCA_BIT_PADDOWN 6 // P0.6 input  (active-LOW)
-#define TCA_BIT_PADUP   7 // P0.7 input  (active-LOW)
+#endif
 
 // Baud Rates
 #define baudSerial 115200 // baud rate for debug
@@ -294,19 +340,23 @@ extern bool vehicleNeutral;     // current Neutral status (from DSG)
 extern bool vehicleReverse;     // current Reverse status (from DSG)
 extern bool vehicleOilPressure; // current oil pressure (from Ford)
 extern bool vehicleBattLight;   // current battery light (from Ford)
-extern uint8_t GRA_counter;     // for paddle frames
-extern uint8_t GRA_crc;         // for paddle frames
-extern uint8_t shifterPaddleCounter;         // free-running 4-bit counter for SHIFTER_PADDLE_ID
-extern volatile uint32_t shifterQueryRaw;    // last SHIFTER_PADDLE_QUERY_ID payload, packed D1<<16 | D2<<8 | D3
-extern volatile uint32_t shifterQueryMs;     // millis() when shifterQueryRaw was received (0 = never)
-extern volatile uint32_t shifterRealSeenMs;  // millis() when a real (factory) SHIFTER_PADDLE_ID frame last arrived (0 = never)
-extern volatile uint8_t shifterTxState;      // SHIFTER_PADDLE_STATE_UP/DOWN while a press is being held, else 0
+extern uint8_t GRA_counter;     // PQ GRA_Neu (0x38A) message counter, 0-15
+extern uint8_t GRA_crc;         // PQ GRA_Neu (0x38A) checksum of the last frame sent
 
-// external variables / triggers
-extern bool boolPadUp;                 // current EML light status
-extern bool boolPadDown;               // current EPC light status
-extern volatile bool padUpTxPending;   // one-shot CAN transmit trigger for paddle up
-extern volatile bool padDownTxPending; // one-shot CAN transmit trigger for paddle down
+// DSG paddles (see the "DSG paddles" section further down and MQB_PADDLES.md)
+extern bool boolPadUp;                          // web page feedback: paddle + pulled in the last 2 s
+extern bool boolPadDown;                        // web page feedback: paddle - pulled in the last 2 s
+extern volatile bool isPaddleUpHeld;            // paddle + is being held right now (after the debounce)
+extern volatile bool isPaddleDownHeld;          // paddle - is being held right now (after the debounce)
+extern volatile uint8_t paddleTestCmd;          // web page "Test Paddle" button: MQB_PADDLE_UP/DOWN until the paddle task takes it
+extern volatile uint8_t paddleCmdSent;          // paddle bits going out right now (MQB_PADDLE_x), for the web page
+extern volatile uint32_t mqbPaddleOtherSenderMs; // millis() when a 0x3DD from another module (a real gateway) last arrived, 0 = never
+extern volatile uint32_t graPaddleOtherSenderMs; // millis() when a 0x38A from another module (a real gateway) last arrived, 0 = never
+
+// MQB gearbox read-back, only used to show on the web page (all 0xFF until the frame is seen)
+extern volatile uint8_t mqbLeverPosition;  // selector lever position from 0x0AF (MQB_LEVER_x)
+extern volatile uint8_t mqbTipState;       // gearbox tip mode from 0x0B1 (MQB_TIP_x)
+extern volatile uint8_t mqbGearboxWarning; // gearbox warning for the cluster from 0x394 (0 = none)
 
 // for eep - settings via. WiFi
 extern bool useHall;    // type of speed input to use: hall sensor
@@ -360,24 +410,23 @@ extern bool testEML;                      // bool to force turn on EML
 extern bool testEPC;                      // bool to force turn on EPC
 extern bool testReverse;                  // bool to force turn on Reverse
 extern String dsgParkMode;                // DSG Park behavior: "None", "EML", or "EPC"
-extern String paddleOutput;               // which paddle frame(s) to send: "All", "MQB", "Shifter", "PQ"
+extern String paddleOutput;               // which paddle frame(s) to send: "Off", "MQB", "PQ", "All" (see PADDLE_OUTPUT_DEFAULT)
 
-// Coolant temperature gauge (PWM on a shared ULN2003 output, EML or EPC pin)
-extern uint8_t coolantOutput;                  // 0=Off, 1=EML pin, 2=EPC pin (mutually exclusive with that pin's light features)
-extern uint32_t coolantPwmFreq;                // fixed PWM carrier frequency (Hz) driving the gauge
-extern uint8_t coolantWarnTemp;                // idiot-light threshold (deg C): peg gauge & warning lamp at/above this
+// Coolant temperature gauge
+// DevKit: PWM on a shared output (EML or EPC pin). S3: dedicated COOLANT_OUT current sink.
+extern uint8_t coolantOutput;                  // COOLANT_OFF / COOLANT_ON_EML / COOLANT_ON_EPC (DevKit) / COOLANT_ON_GAUGE (S3)
+extern uint32_t coolantPwmFreq;                // DevKit only: fixed PWM carrier frequency (Hz) driving the gauge
+extern uint8_t coolantWarnTemp;                // warning threshold (deg C): peg gauge & warning lamp at/above this
 extern uint8_t coolantCalCount;                // number of calibration points in use
 extern int16_t coolantCalTemp[COOLANT_CAL_MAX];  // calibration temperature points (deg C), kept sorted ascending
-extern uint16_t coolantCalDuty[COOLANT_CAL_MAX]; // calibration duty points (0-1023), paired with coolantCalTemp
+extern uint16_t coolantCalDuty[COOLANT_CAL_MAX]; // calibration output points (0-1023 DevKit PWM / 0-4095 S3 DAC), paired with coolantCalTemp
 extern bool coolantCalMode;                    // when true, output is driven at coolantCalDutyNow so the needle can be read
-extern uint16_t coolantCalDutyNow;             // live jog duty used while calibrating (0-1023 old / 0-4095 new)
-extern uint16_t coolantAppliedDuty;            // last duty actually written to the gauge (for status/curve)
+extern uint16_t coolantCalDutyNow;             // live jog value used while calibrating (0-1023 DevKit / 0-4095 S3)
+extern uint16_t coolantAppliedDuty;            // last value actually written to the gauge (for status/curve)
 
-// Board revision + I2C peripheral state (new board only)
-extern bool isNewBoard;      // true when pinBoardSense (GPIO32) is grounded
-extern bool i2cMcpPresent;   // MCP4725 coolant DAC acked on the bus
-extern bool i2cTcaPresent;   // TCA9554 expander acked on the bus
-extern uint8_t tcaInputShadow; // last-read TCA9554 port input byte
+// S3 board state
+extern bool i2cMcpPresent;            // S3: MCP4725 coolant DAC answered on the I2C bus
+extern uint16_t boardVersionMilliVolts; // S3: voltage on the BOARD_VER pin at boot (board-ID divider)
 
 // Blink LED state
 struct BlinkState
@@ -400,7 +449,7 @@ extern uint32_t stackShowState;
 extern uint32_t stackUpdateLabels;
 extern uint32_t stackWriteEEP;
 
-extern uint32_t stackbroadcastGRA;
+extern uint32_t stackbroadcastPaddles;
 extern uint32_t stackbroadcastSpeed;
 extern uint32_t stackparseGPS;
 extern uint32_t stackparseDSG;
@@ -450,7 +499,8 @@ extern uint32_t stackcheckError;
 #define MOTOR_11 0x0A7      // engine torque demand/output broadcast
 #define MOTOR_12 0x0A8      // high-rate engine speed/torque broadcast (RPM)
 #define GETRIEBE_11 0x0AD   // transmission/DSG status broadcast (gear lever, target gear)
-#define GETRIEBE_17 0x0B1   // DSG paddle/tip status
+#define GETRIEBE_12 0x0AE   // gearbox -> engine: rev-match/torque requests during a shift. NOT the paddles (see MQB_PADDLES.md)
+#define GETRIEBE_17 0x0B1   // gearbox tip mode (GE_TippZustand): none / M gate / temporary from a paddle
 #define ESP_19 0x0B2        // per-wheel ABS speeds broadcast
 #define ESP_21 0x0FD        // ESP/ASR mode + vehicle reference speed
 #define ESP_02 0x101        // ESP broadcast
@@ -466,6 +516,7 @@ extern uint32_t stackcheckError;
 #define CHARISMA_01 0x385   // drive-profile (Charisma) selection
 #define ESP_07 0x392        // ESP broadcast
 #define MOTOR_14 0x3BE      // low-rate engine state/event broadcast (kickdown)
+#define WBA_03 0x394        // gearbox -> cluster: gear display, M/D, gearbox warnings
 #define GETRIEBE_14 0x3C8   // transmission broadcast
 #define GATEWAY_72 0x3DB    // gateway body lighting state
 #define PARKHILFE_04 0x54B  // park-assist broadcast
@@ -478,89 +529,90 @@ extern uint32_t stackcheckError;
 #define DIAGNOSE_01 0x6B2   // diagnostics broadcast
 #define KOMBI_02 0x6B7      // instrument cluster broadcast
 
-// MQB steering-wheel paddle message, captured on a customer's MQB car with
-// factory wheel paddles ("Paddle Shifters Filter Log.csv", 0x3DD only). This is
-// the paddle side of the car, NOT the gear selector, so it does not collide
-// with a selector that stays on the bus. 100 ms frame, no rolling counter or
-// CRC; static carrier 08 04 20 00 FE 00 0A (D1-D4 carry other slow-changing
-// signals in the log), last byte = paddle state. Real presses last 2..52
-// frames (120 ms .. 5 s), so an 80 ms pulse at 20 ms could be missed by a
-// consumer sampling at the real 100 ms rate - hence the rate/hold below.
-#define MQB_PADDLE_ID 0x3DD // last byte (data[7]) carries the paddle request
-#define MQB_PADDLE_NONE 0x00
-#define MQB_PADDLE_DOWN 0x01 // shift down
-#define MQB_PADDLE_UP 0x02   // shift up
-#define MQB_PADDLE_BOTH 0x03 // both paddles (seen in the log)
-#define MQB_PADDLE_REFRESH_MS 100 // real frame period
-#define MQB_PADDLE_HOLD_MS 300    // how long a press is held (3 frames; real taps are >= 2)
+// ===== DSG paddles =====
+// Worked out from the Tplus/Tminus logs and the MQB K-matrix - the full story
+// is in MQB_PADDLES.md next to platformio.ini.
+//
+// MQB: the gearbox reads the steering-wheel paddles from Gateway_74 (0x3DD),
+// which the gateway normally sends on the drivetrain CAN. A swap has no
+// gateway, so Can2Cluster sends it instead. Byte 7 (K-matrix MQB_ACAN_KMatrix):
+//   bit 0 = MFL_Tip_Down        (1 = paddle - pulled)
+//   bit 1 = MFL_Tip_Up          (1 = paddle + pulled)
+//   bit 2 = LS_Tiptronic_Fehler (paddle fault - always 0)
+// No counter or checksum. Sent every 100 ms, plus straight away when a paddle
+// changes, and the bit stays set for as long as the paddle is held - the same
+// as a factory gateway (customer log "Renault Megane - Paddle Shifters Filter
+// Log.csv": shortest taps 2 frames / 60-150 ms, longest 52 frames / 5 s).
+#define MQB_PADDLE_ID 0x3DD              // Gateway_74: steering-wheel paddles -> gearbox
+#define MQB_PADDLE_NONE 0x00             // byte 7: no paddle pulled
+#define MQB_PADDLE_DOWN 0x01             // byte 7 bit 0: MFL_Tip_Down
+#define MQB_PADDLE_UP 0x02               // byte 7 bit 1: MFL_Tip_Up
+#define MQB_PADDLE_BOTH 0x03             // both pulled together (a factory gateway sends this too)
+#define MQB_PADDLE_REFRESH_MS 100        // factory cycle time (K-matrix GenMsgCycleTime)
+#define MQB_PADDLE_MIN_HOLD_MS 150       // shortest pull we send: always 2+ frames, like the shortest factory taps
+#define MQB_PADDLE_OTHER_SENDER_MS 1000  // a 0x3DD from another module in this long = a real gateway is fitted, so we stay quiet
 
-// Which paddle frame(s) go on the bus when a paddle is pressed (web UI
-// drop-down, stored in NVS as "paddleOutput"):
-//   "All"     - PQ GRA 0x38A + MQB 0x3DD + selector 0x0AF (legacy behaviour)
-//   "MQB"     - MQB wheel-paddle frame 0x3DD only
-//   "Shifter" - MQB selector frame 0x0AF only (shadow / standalone)
-//   "PQ"      - PQ GRA 0x38A only
-#define PADDLE_OUTPUT_DEFAULT "All"
+// PQ: the paddles ride in the cruise-control frame GRA_Neu (GRA_ID 0x38A),
+// 4 bytes. Byte map from the VW PQ35/46 K-matrix (V5.20.6F); opendbc agrees:
+//   byte 0         GRA_Checksum: byte 1 XOR byte 2 XOR byte 3
+//   byte 1         cruise buttons (main switch, cancel, up/down short/long) - all 0
+//   byte 2 bit 0   GRA_Neu_Setzen: cruise SET - always 0
+//   byte 2 bit 1   GRA_Recall: cruise RESUME - always 0
+//   byte 2 bit 2-3 GRA_Sender: which part sends the frame (GRA_SENDER below)
+//   byte 2 bit 4-7 GRA_Neu_Zaehler: message counter 0-15, +1 every frame
+//   byte 3 bit 0   GRA_Tip_Down: paddle -
+//   byte 3 bit 1   GRA_Tip_Up: paddle +
+// The K-matrix sends it every 20-30 ms and calls it missing after 500 ms. We send every 20 ms.
+// (Up to V4.01 byte 2 was a 0-255 counter: the real counter only moved every
+// 16th frame, and cruise SET/RESUME read as pressed in about half the frames.)
+#define GRA_PULSE_MIN_MS 80              // shortest pull we send on the PQ GRA frame (4 frames)
+#define GRA_COUNTER_MAX 15               // byte 2 counter runs 0-15, then back to 0
+#define GRA_SENDER 0                     // ** CAN CHANGE THIS ** GRA_Sender code: 0 = body module, 1 = column stalk 6 buttons, 2 = MQB-style wheel (MFL Gen 2), 3 = column stalk 4 buttons
+#define GRA_OTHER_SENDER_MS 1000         // a 0x38A from another module in this long = a real gateway is sending it, so we stay quiet
 
-// DSG paddle/tip status from the MQB gear selector module (part number
-// 5Q2 713 023 T, see below), captured on Powertrain CAN (Tplus-log.csv /
-// Tminus-log.csv, re-confirmed with Tplus-log(1).csv / Tminus-log(1).csv).
-//
-//   0x0AF (shifter -> gearbox), 4 bytes, ~10 ms on the shifter's own clock.
-//   D2 hi-nibble = paddle state, D2 lo-nibble = free-running 4-bit counter
-//   (+1 every frame, never resets on a state change). D1 = ~(D2 hi-nibble) in
-//   its top nibble with a fixed 0x2 low nibble. D1 is NOT a checksum: it stays
-//   E2/A2/B2 across all 16 counter values and every D3/D4 value in >21k frames.
-//
-//   0x128 (gearbox -> shifter), 3 bytes, 20 ms, in lockstep with Getriebe_11.
-//   D1 hi-nibble = the paddle state the gearbox has ACCEPTED (E idle / A up /
-//   B down, same encoding as 0x0AF D1). D1 lo-nibble 0x5 = a query the shifter
-//   must answer in its next 0x0AF frames (D3 = answer, D4 = 0x01); lo-nibble
-//   0x1 = no query (0x0AF D3/D4 = 00 00):
-//     128 X5 V  00  ->  0AF D3 = V         (echo)
-//     128 X5 V  FF  ->  0AF D3 = ~V        (bitwise complement)
-//     128 X5 FF n   ->  0AF D3 = IDENT[n]  (n = 0x00..0x13, part number string)
-//   The gearbox cycles idle / echo / idle / complement / idle / ident. The
-//   answers are 100% deterministic in the logs and IDENT decodes as ASCII
-//   "5Q2713023T  VL17" + four 0x00. We answer the live queries rather than
-//   replaying a fixed pattern, since a wrong answer presumably marks the shifter
-//   implausible and the gearbox then ignores its tip requests.
-//
-// Real presses: a tap is held for >= ~450 ms (45 frames), a hold for as long as
-// the paddle is pulled. The gearbox never saw our old 80 ms pulse, hence the
-// dedicated hold below.
-//
-// Two modes, chosen automatically from whether a real 0x0AF has been seen in
-// the last SHIFTER_PADDLE_REAL_TIMEOUT_MS:
-//   SHADOW (factory selector on the bus, the normal install): we never send
-//   0x0AF on our own clock. During a press, every real 0x0AF is immediately
-//   re-sent with only the state nibble (and its complement in D1) swapped;
-//   the selector's counter and its live handshake answers are copied verbatim.
-//   A consumer that takes the last-received value sees a steady up/down with a
-//   counter that still increments by one per 10 ms. Idle = nothing sent.
-//   STANDALONE (no selector on the bus): we send 0x0AF ourselves every 10 ms
-//   and answer the 0x128 queries ourselves.
-// This supersedes the never-wired-up GETRIEBE_17 (0xB1) guess below.
-#define SHIFTER_PADDLE_ID 0x0AF
-#define SHIFTER_PADDLE_STATE_IDLE 0x1
-#define SHIFTER_PADDLE_STATE_DOWN 0x4
-#define SHIFTER_PADDLE_STATE_UP 0x5
-#define SHIFTER_PADDLE_QUERY_ID 0x128       // gearbox -> shifter: accepted state + query (RX only)
-#define SHIFTER_PADDLE_QUERY_TIMEOUT_MS 100 // answer a query for at most this long after it arrived
-#define SHIFTER_PADDLE_HOLD_MS 500          // how long a paddle press is held on 0x0AF (shortest real tap ~450 ms)
-#define SHIFTER_PADDLE_REAL_TIMEOUT_MS 200  // a real 0x0AF within this long => shadow mode, else standalone
-#define SHIFTER_PADDLE_IDENT "5Q2713023T  VL17" // 16 chars, indices 16..19 answer 0x00
-#define SHIFTER_PADDLE_IDENT_LEN 20
+// Paddle switches and the web page test buttons
+#define PADDLE_DEBOUNCE_MS 20            // a paddle switch must read the same for this long to count
+#define PADDLE_TEST_HOLD_MS 200          // web page "Test Paddle" button = a pull this long
+
+// Which paddle frame(s) go on the bus (web page drop-down, saved as "paddleMode"):
+//   "Off" - nothing sent (non-VW cars, or no paddles fitted)
+//   "MQB" - Gateway_74 0x3DD
+//   "PQ"  - GRA_Neu 0x38A
+//   "All" - both (neither ID is used on the other platform's drivetrain CAN)
+#define PADDLE_OUTPUT_DEFAULT "Off"
+
+// MQB selector lever (Waehlhebel_03, 0x0AF, 10 ms) and the gearbox's reply to
+// it (Getriebe_06, 0x128, 20 ms). READ ONLY - shown on the web page.
+// The gearbox checks the lever with a question/answer every 40 ms and a
+// message counter, so a second module sending 0x0AF breaks that check.
+// Can2Cluster never sends these (V3.22-V4.00 did, and that's why it failed).
+#define MQB_SELECTOR_ID 0x0AF   // byte 0 top 4 bits = lever position, byte 1 top 4 bits = the same inverted
+#define MQB_LEVER_NOT_PRESSED 4 // lever positions (WH_SensorPos_roh, from the K-matrix)
+#define MQB_LEVER_D 5           // drive
+#define MQB_LEVER_N 6           // neutral
+#define MQB_LEVER_R 7           // reverse
+#define MQB_LEVER_P 8           // park
+#define MQB_LEVER_TIP_PLUS 10   // lever pushed to + in the M gate (Tplus logs)
+#define MQB_LEVER_TIP_MINUS 11  // lever pulled to - in the M gate (Tminus logs)
+#define MQB_LEVER_S 12          // sport
+#define MQB_LEVER_TIP_GATE 14   // lever resting in the M (tiptronic) gate
+
+// Gearbox tip mode (Getriebe_17 0x0B1, byte 2 bits 0-1, GE_TippZustand)
+#define MQB_TIP_NONE 0          // normal D/S driving (or P/R/N)
+#define MQB_TIP_PERMANENT 1     // lever in the M gate
+#define MQB_TIP_TEMPORARY 2     // a paddle was pulled in D/S - proof the gearbox took our 0x3DD
 
 // MQB Getriebe_11 GE_Fahrstufe (gear-lever position) values — byte 5 bits 2..5.
-// Verified against OpenHaldex MQB log "gears all inc tip and sport.csv".
-#define MQB_FAHRSTUFE_INIT 0x0 // init / no display
-#define MQB_FAHRSTUFE_P 0x5    // park
-#define MQB_FAHRSTUFE_R 0x6    // reverse
-#define MQB_FAHRSTUFE_N 0x7    // neutral
-#define MQB_FAHRSTUFE_D 0x8    // drive
-#define MQB_FAHRSTUFE_S 0x9    // sport
-#define MQB_FAHRSTUFE_TIP 0xD  // tiptronic / manual gate
+// From the K-matrix, verified against the OpenHaldex MQB logs (see MQB_PADDLES.md).
+#define MQB_FAHRSTUFE_INIT 0x0  // between positions / no display
+#define MQB_FAHRSTUFE_P 0x5     // park
+#define MQB_FAHRSTUFE_R 0x6     // reverse
+#define MQB_FAHRSTUFE_N 0x7     // neutral
+#define MQB_FAHRSTUFE_D 0x8     // drive
+#define MQB_FAHRSTUFE_S 0x9     // sport
+#define MQB_FAHRSTUFE_E 0xA     // efficiency (E) - drives like D
+#define MQB_FAHRSTUFE_TIP 0xD   // tiptronic from S (paddle pulled in S)
+#define MQB_FAHRSTUFE_TIP_D 0xE // tiptronic from D (lever in the M gate, or paddle pulled in D)
 
 // for main functions
 extern void basicInit(void);
@@ -572,7 +624,7 @@ extern void setupPins(void);
 extern void blinkLED(int duration, int flashes, bool boolEPC, bool boolEML, bool boolRPM, bool boolSpeed);
 extern void updateBlinkLED(void);
 extern void broadcastSpeed(void *args);
-extern void broadcastGRA(void *args);
+extern void broadcastPaddles(void *args);
 extern void setFrequencySpeed(long frequencyHz);
 extern void setFrequencyRPM(long frequencyHz);
 extern void incomingHz();
@@ -594,10 +646,10 @@ extern void setupTasks();
 extern void showState();
 extern void diagTestTask(void *args);
 
-// for buttons
+// for buttons (paddles)
 extern void padUpFunc(void);
 extern void padDownFunc(void);
-extern void updateButtons(void);
+extern void updateButtons(void);        // read both paddle switches - called every 10 ms by broadcastPaddles()
 extern void updatePaddleFeedback(void);
 
 // for WiFi Function Prototypes

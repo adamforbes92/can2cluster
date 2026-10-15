@@ -168,16 +168,41 @@
 
             <section class="card">
                 <h2>DSG Paddle Output</h2>
-                <p class="hint">Which CAN frame a paddle press is sent as. Only active while the speed source is DSG.</p>
+                <p class="hint">Which CAN frame the paddle inputs are sent as. MQB gearboxes read the wheel paddles from 0x3DD, PQ gearboxes from the GRA frame 0x38A. Works with any speed source; Off sends nothing. If a factory gateway is already sending that frame, Can2Cluster stays quiet on it and shows "Gateway owns".</p>
                 <div class="input-group">
                     <label>Paddle Frame</label>
                     <select id="paddleOutput">
-                        <option value="All">All (PQ + MQB + Selector)</option>
+                        <option value="Off">Off</option>
                         <option value="MQB">MQB Wheel Paddles (0x3DD)</option>
-                        <option value="Shifter">MQB Selector Tip (0x0AF)</option>
                         <option value="PQ">PQ GRA (0x38A)</option>
+                        <option value="All">PQ + MQB (0x38A + 0x3DD)</option>
                     </select>
                 </div>
+                <div class="status-grid">
+                    <div class="status-item">
+                        <div class="status-label">Sending</div>
+                        <div class="status-value" id="paddleSending">--</div>
+                    </div>
+                    <div class="status-item">
+                        <div class="status-label">Lever (0x0AF)</div>
+                        <div class="status-value" id="mqbLever">--</div>
+                    </div>
+                    <div class="status-item">
+                        <div class="status-label">Tip Mode (0x0B1)</div>
+                        <div class="status-value" id="mqbTipMode">--</div>
+                    </div>
+                    <div class="status-item">
+                        <div class="status-label">Gear</div>
+                        <div class="status-value" id="dsgGear">--</div>
+                    </div>
+                    <div class="status-item">
+                        <div class="status-label">Gearbox Warning (0x394)</div>
+                        <div class="status-value" id="mqbGearboxWarning">--</div>
+                    </div>
+                </div>
+                <button class="btn-secondary" id="paddleTestUp">Test Paddle +</button>
+                <button class="btn-secondary" id="paddleTestDown">Test Paddle -</button>
+                <p class="hint">Test with the engine running - a DSG never changes gear with the engine off. In D, a paddle pull should switch Tip Mode to "Paddle (temporary)".</p>
             </section>
         </div>
 
@@ -433,23 +458,30 @@
 
             <section class="card">
                 <h2>Coolant Gauge Output</h2>
-                <p style="margin-top: 0; color: var(--text-dim);">
+                <p style="margin-top: 0; color: var(--text-dim);" data-board="esp32">
                     Drive the MK2 coolant temperature gauge from one of the ULN2003 outputs
                     (EML or EPC). Selecting an output here takes exclusive ownership of that
                     pin &mdash; any Shift Light or DSG Park use of the same pin is cleared.
+                </p>
+                <p style="margin-top: 0; color: var(--text-dim);" data-board="esp32s3">
+                    Drive the MK2 coolant temperature gauge from the dedicated Coolant output
+                    (connector pin 16). The needle follows the calibration curve below, so it
+                    reads a real temperature &mdash; EML and EPC stay free for their lights.
                 </p>
                 <div class="input-group">
                     <label>Coolant Output</label>
                     <select id="coolantOutput">
                         <option value="Off">Off</option>
-                        <option value="EML">EML</option>
-                        <option value="EPC">EPC</option>
+                        <option value="EML" data-board="esp32">EML</option>
+                        <option value="EPC" data-board="esp32">EPC</option>
+                        <option value="Gauge" data-board="esp32s3">Coolant Output (pin 16)</option>
                     </select>
                 </div>
                 <div class="input-group" style="margin-top: 1rem;">
                     <label>Warning Temperature: <span id="coolantWarnTemp-display">120</span> &deg;C</label>
                     <input type="range" id="coolantWarnTemp" min="0" max="140" step="1" value="120" class="slider">
-                    <small style="color: var(--text-dim);">Idiot-light mode: at or above this coolant temperature the gauge is pegged and the cluster warning light is triggered. Below it the output stays off.</small>
+                    <small style="color: var(--text-dim);" data-board="esp32">Idiot-light mode: at or above this coolant temperature the gauge is pegged and the cluster warning light is triggered. Below it the output stays off.</small>
+                    <small style="color: var(--text-dim);" data-board="esp32s3">At or above this coolant temperature the gauge is pegged and the cluster warning light is triggered. Below it the gauge follows the calibration curve (or stays off if no points are captured yet).</small>
                 </div>
                 <div class="live-data-grid" style="margin-top: 1rem;">
                     <div class="live-data-item">
@@ -526,36 +558,43 @@
 
         <div class="page" id="diag-page">
             <section class="card">
-                <h2>Board &amp; I2C Diagnostics</h2>
-                <p style="margin-top: 0; color: var(--text-dim);">
-                    Board revision is auto-detected (GPIO32 grounded = new board). On the new
-                    board the coolant gauge (MCP4725 DAC), and Reverse/EPC/EML plus the DSG
-                    paddles (TCA9554 expander) all run over I2C.
+                <h2>Board Diagnostics</h2>
+                <p style="margin-top: 0; color: var(--text-dim);" data-board="esp32">
+                    ESP32 DevKit board: every output is a plain pin and the coolant gauge
+                    borrows the EML or EPC output.
+                </p>
+                <p style="margin-top: 0; color: var(--text-dim);" data-board="esp32s3">
+                    ESP32-S3 board: the coolant gauge runs from the MCP4725 DAC on I2C.
+                    Termination and pull-ups are set in the firmware (can2cluster_defs.h).
                 </p>
                 <div class="live-data-grid">
                     <div class="live-data-item">
                         <div class="live-data-label">Board</div>
                         <div class="live-data-value" id="liveBoard">--</div>
                     </div>
-                    <div class="live-data-item">
+                    <div class="live-data-item" data-board="esp32s3">
                         <div class="live-data-label">MCP4725 (0x60)</div>
                         <div class="live-data-value" id="liveMcp4725">--</div>
                     </div>
-                    <div class="live-data-item">
-                        <div class="live-data-label">TCA9554 (0x20)</div>
-                        <div class="live-data-value" id="liveTca9554">--</div>
-                    </div>
-                    <div class="live-data-item">
+                    <div class="live-data-item" data-board="esp32s3">
                         <div class="live-data-label">Coolant DAC</div>
                         <div class="live-data-value" id="liveCoolantDac">--</div>
                     </div>
-                    <div class="live-data-item">
-                        <div class="live-data-label">TCA Inputs</div>
-                        <div class="live-data-value" id="liveTcaInputs">--</div>
+                    <div class="live-data-item" data-board="esp32s3">
+                        <div class="live-data-label">Board ID</div>
+                        <div class="live-data-value" id="liveBoardId">--</div>
                     </div>
-                    <div class="live-data-item">
-                        <div class="live-data-label">TCA INT Count</div>
-                        <div class="live-data-value" id="liveTcaInt">--</div>
+                    <div class="live-data-item" data-board="esp32s3">
+                        <div class="live-data-label">CAN Termination</div>
+                        <div class="live-data-value" id="liveCanTerm">--</div>
+                    </div>
+                    <div class="live-data-item" data-board="esp32s3">
+                        <div class="live-data-label">Output Pull-ups</div>
+                        <div class="live-data-value" id="liveOutputPullUp">--</div>
+                    </div>
+                    <div class="live-data-item" data-board="esp32s3">
+                        <div class="live-data-label">Speed Input Bias</div>
+                        <div class="live-data-value" id="liveSpeedBias">--</div>
                     </div>
                 </div>
             </section>

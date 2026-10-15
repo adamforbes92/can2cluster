@@ -16,16 +16,23 @@ void outputControlTask(void *args);
 void paddleFeedbackTask(void *args);
 void checkError(void *args);
 void writeEEP(void *args);
-void broadcastGRA(void *args);
+void broadcastPaddles(void *args);
 void broadcastSpeed(void *args);
 void parseGPS(void *args);
 void parseDSG(void *args);
 void needleSweep(void);
 
-// Coolant temperature gauge (PWM on the shared EML/EPC ULN2003 output)
-void applyCoolantOutput(void);              // (re)attach or detach the LEDC channel to EML/EPC per coolantOutput
-void updateCoolantOutput(void);             // compute duty from temp/cal and drive the gauge (call each output loop)
-uint16_t coolantDutyForTemp(int16_t tempC); // interpolate duty (0-1023) for a temperature from the calibration table
+void setupBoardSwitches(void); // S3: set the CAN standby/termination and pull-up switch pins
+
+// Light / reverse outputs (plain GPIO on both boards)
+void driveReverse(bool on); // reverse light MOSFET on/off
+void driveEPC(bool on);     // EPC light output on/off
+void driveEML(bool on);     // EML light output on/off
+
+// Coolant temperature gauge (DevKit: PWM on the shared EML/EPC output, S3: MCP4725 current sink)
+void applyCoolantOutput(void);              // DevKit: (re)attach or detach the LEDC channel to EML/EPC per coolantOutput
+void updateCoolantOutput(void);             // compute the output from temp/cal and drive the gauge (call each output loop)
+uint16_t coolantDutyForTemp(int16_t tempC); // interpolate the output value for a temperature from the calibration table
 
 void queryECUTask(void *args);
 

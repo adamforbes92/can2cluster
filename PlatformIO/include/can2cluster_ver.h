@@ -67,4 +67,49 @@ V3.24 - OTA overhaul (shared ota_manager / wifi_manager v2 + data/ota.js, ported
         Coolant PWM stays on LEDC (10 Hz min) but re-selects its clock source
         on a frequency change instead of ledc_set_freq().
 
+V4.00 - two boards from one codebase. platformio.ini has two envs:
+          esp32doit-devkit-v1 (-DBOARD_DEVKIT=1) - the original DevKit board,
+            unchanged: coolant gauge still borrows the EML or EPC output as PWM.
+          esp32-s3 (-DBOARD_S3=1) - the new ESP32-S3-WROOM-1-N16R8 board
+            (PCB/ProPrj_can2clusterV4-s3-reva_2026-10-03). Pins taken from the
+            PCB netlist (see can2cluster_defs.h). Native USB for Serial/upload,
+            16 MB partition table.
+        S3 coolant gauge: dedicated COOLANT_OUT (J1 pin 16), MCP4725 DAC ->
+            op-amp current sink. Follows the calibration curve (real needle
+            position, not just on/off); pegged at/above the warning temperature.
+            EML/EPC stay free for their lights.
+        S3 board switches set at boot: CAN transceiver standby (normal), CAN
+            termination (off), 12V output pull-ups (on), hall speed input bias
+            (12V pull-up). Set in can2cluster_defs.h for now.
+        Removed the never-built "new DevKit board" TCA9554 I/O-expander path
+            (isNewBoard / GPIO32 board sense). EML/EPC/Reverse/paddles are plain
+            pins on both boards.
+        OTA: shared ota_manager / ota.js / make_release.py updated to the
+            board-aware _SharedTheme version - each board is only offered its
+            own firmware from GitHub (Releases/V4.00/ and Releases/V4.00-S3/).
+        Web page: one data/ folder for both boards; board-only options are
+            shown/hidden from the "board" field in /api/settings.
+
+V4.01 - MQB paddles rebuilt after a full review of the Tplus/Tminus logs against
+        the MQB K-matrix (write-up: MQB_PADDLES.md).
+        The logs are the gear LEVER's tip gate (0x0AF), engine off - not paddles.
+        0x0AE is Getriebe_12 (gearbox -> engine): its payload never changed.
+        MQB paddles now go out the factory way: Gateway_74 (0x3DD) byte 7,
+            every 100 ms plus straight away on a change, held for as long as
+            the paddle is held (150 ms minimum). Stays quiet if a real gateway
+            is already sending 0x3DD.
+        Removed the selector (0x0AF) emulation: the gearbox checks the lever
+            with a question/answer and a counter, so a second sender on 0x0AF
+            can't work alongside the real lever.
+        Paddles read as held / not held (OneButton click only fired on release,
+            and never for a pull longer than 0.8 s). Read by the paddle task
+            every 10 ms instead of loop().
+        Paddle output no longer needs DSG as the speed source; new "Off" choice
+            (the default). Old "paddleOutput" setting carried across once.
+        Getriebe_11: GE_Fahrstufe 14 (tip from D) and 10 (E) were missing, so
+            the gear (and DSG speed) froze in the M gate / when using paddles.
+        Web page: live paddle readout (sending / lever / tip mode / gear /
+            gearbox warning) and Test Paddle +/- buttons. Paddle frames we send
+            are copied into the SavvyCAN analyzer stream.
+
 */

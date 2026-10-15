@@ -62,18 +62,24 @@ bool vehicleNeutral = false;
 bool vehicleReverse = false;
 bool vehicleOilPressure = false;
 bool vehicleBattLight = false;
-uint8_t GRA_counter = 0;
-uint8_t GRA_crc = 0;
-uint8_t shifterPaddleCounter = 0;
-volatile uint32_t shifterQueryRaw = 0;
-volatile uint32_t shifterQueryMs = 0;
-volatile uint32_t shifterRealSeenMs = 0;
-volatile uint8_t shifterTxState = 0;
+uint8_t GRA_counter = 0; // PQ GRA_Neu message counter, 0-15
+uint8_t GRA_crc = 0;     // PQ GRA_Neu checksum of the last frame sent
 
-bool boolPadUp = false;
-bool boolPadDown = false;
-volatile bool padUpTxPending = false;
-volatile bool padDownTxPending = false;
+// DSG paddles. "volatile" = set by one task and read by another (or the web
+// page), so always re-read it rather than trusting a copy.
+bool boolPadUp = false;                       // web page feedback: paddle + pulled in the last 2 s
+bool boolPadDown = false;                     // web page feedback: paddle - pulled in the last 2 s
+volatile bool isPaddleUpHeld = false;         // paddle + held right now
+volatile bool isPaddleDownHeld = false;       // paddle - held right now
+volatile uint8_t paddleTestCmd = MQB_PADDLE_NONE; // web page test button: nothing to test yet
+volatile uint8_t paddleCmdSent = MQB_PADDLE_NONE; // paddle bits going out right now
+volatile uint32_t mqbPaddleOtherSenderMs = 0; // 0 = never seen another 0x3DD sender
+volatile uint32_t graPaddleOtherSenderMs = 0; // 0 = never seen another 0x38A sender
+
+// MQB gearbox read-back for the web page. 0xFF = frame not seen yet.
+volatile uint8_t mqbLeverPosition = 0xFF;     // lever position from 0x0AF
+volatile uint8_t mqbTipState = 0xFF;          // gearbox tip mode from 0x0B1
+volatile uint8_t mqbGearboxWarning = 0xFF;    // gearbox warning from 0x394
 
 bool useHall = false;
 bool useVR = false;
@@ -129,9 +135,9 @@ String dsgParkMode = "None";  // DSG Park behavior: "None", "EML", or "EPC"
 String paddleOutput = PADDLE_OUTPUT_DEFAULT; // which paddle frame(s) to send
 
 // Coolant temperature gauge
-uint8_t coolantOutput = 0;       // 0=Off, 1=EML pin, 2=EPC pin
-uint32_t coolantPwmFreq = 10000; // Hz (fixed PWM carrier)
-uint8_t coolantWarnTemp = 120;   // deg C idiot-light threshold
+uint8_t coolantOutput = COOLANT_OFF; // where the gauge is driven from (see COOLANT_xx in _defs.h)
+uint32_t coolantPwmFreq = 10000; // Hz (fixed PWM carrier, DevKit only)
+uint8_t coolantWarnTemp = 120;   // deg C warning threshold (gauge pegged at/above this)
 uint8_t coolantCalCount = 0;
 int16_t coolantCalTemp[COOLANT_CAL_MAX] = {0};
 uint16_t coolantCalDuty[COOLANT_CAL_MAX] = {0};
@@ -139,11 +145,9 @@ bool coolantCalMode = false;
 uint16_t coolantCalDutyNow = 0;
 uint16_t coolantAppliedDuty = 0;
 
-// Board revision + I2C peripheral state
-bool isNewBoard = false;
-bool i2cMcpPresent = false;
-bool i2cTcaPresent = false;
-uint8_t tcaInputShadow = 0xFF; // paddles idle HIGH (active-low)
+// S3 board state (stay at these values on the DevKit)
+bool i2cMcpPresent = false;         // MCP4725 coolant DAC found on the I2C bus
+uint16_t boardVersionMilliVolts = 0; // BOARD_VER pin voltage read at boot
 
 // Blink state tracking for non-blocking LED operations
 BlinkState blinkState = {
@@ -163,7 +167,7 @@ uint32_t stackShowState = 0;
 uint32_t stackUpdateLabels = 0;
 uint32_t stackWriteEEP = 0;
 
-uint32_t stackbroadcastGRA = 0;
+uint32_t stackbroadcastPaddles = 0;
 uint32_t stackbroadcastSpeed = 0;
 uint32_t stackparseGPS = 0;
 uint32_t stackparseDSG = 0;

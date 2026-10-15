@@ -11,8 +11,11 @@ Main features:
 > WiFi config
 > SavvyCAN / GVRET implementation for CAN analysis (TCP:23 or Serial 1Mbaud)
 > DSG / TP2.0 & UDS Support
+> Two boards from one codebase (pick the env in platformio.ini):
+    ESP32 DevKit board - coolant gauge borrows the EML or EPC output
+    ESP32-S3 board     - dedicated coolant gauge output (MCP4725 current sink)
 
-Forbes-Automotive, 2025
+Forbes-Automotive, 2025-2026
 */
 
 #include "can2cluster_defs.h"
@@ -29,7 +32,7 @@ TinyGPSPlus gps;
 // for EEPROM
 Preferences pref;
 
-// for inputs / paddles
+// for inputs / paddles - read every 10 ms by the broadcastPaddles task (can2cluster_can.cpp)
 OneButton btnPadUp(pinPaddleUp, true, true);     // active-low with internal pull-up
 OneButton btnPadDown(pinPaddleDown, true, true); // active-low with internal pull-up
 
@@ -52,6 +55,9 @@ void setup() {
   // onboard LED to cut current draw (and therefore linear-regulator heat).
   power_config_t pcfg = powerDefaultConfig();
   pcfg.verbose = serialDebugWifi; // honour the project's WiFi debug gating
+#if !hasOnboardLED
+  pcfg.turnOffOnboardLed = false; // S3 board has no onboard LED (GPIO2 is a spare pin there)
+#endif
   powerInit(&pcfg);
 }
 
@@ -69,7 +75,7 @@ void loop() {
     DEBUG_GPS("[Auto] Rate apply %s: %s", ok ? "OK" : "FAILED", resp.c_str());
   }
 
-  updateButtons();
+  // (the paddles are read by the broadcastPaddles task, not here)
 
   if (tempNeedleSweep) {
     tasksSuspendAll();

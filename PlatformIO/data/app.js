@@ -85,6 +85,16 @@ function initControls() {
     testShiftBtn.addEventListener('click', () => pushAction('testShiftLight'));
   }
 
+  // Test Paddle +/- buttons: a short pull sent on the selected paddle frame
+  const paddleTestUpBtn = document.getElementById('paddleTestUp');
+  if (paddleTestUpBtn) {
+    paddleTestUpBtn.addEventListener('click', () => pushAction('paddleTestUp'));
+  }
+  const paddleTestDownBtn = document.getElementById('paddleTestDown');
+  if (paddleTestDownBtn) {
+    paddleTestDownBtn.addEventListener('click', () => pushAction('paddleTestDown'));
+  }
+
   const otaFsUploadBtn = document.getElementById('otaFsUploadBtn');
 
   // Configuration controls
@@ -304,6 +314,10 @@ async function fetchSettings() {
     const response = await fetch('/api/settings');
     const data = await response.json();
 
+    // Show only the options this board has (before the values are filled in,
+    // so the coolant drop-down already holds the right choices)
+    applyBoard(data.board || 'esp32');
+
     // Load all settings from API once
     document.getElementById('hasNeedleSweep').checked = data.hasNeedleSweep || false;
     document.getElementById('sweepSpeed').value = data.sweepSpeed || 0;
@@ -321,7 +335,7 @@ async function fetchSettings() {
     applySpeedUnitLabels(data.useMPH);
     document.getElementById('dsgParkMode').value = data.dsgParkMode || 'None';
     const paddleOutputEl = document.getElementById('paddleOutput');
-    if (paddleOutputEl) paddleOutputEl.value = data.paddleOutput || 'All';
+    if (paddleOutputEl) paddleOutputEl.value = data.paddleOutput || 'Off';
 
     // Coolant gauge output
     const coolantOutputEl = document.getElementById('coolantOutput');
@@ -585,6 +599,38 @@ async function fetchStatus() {
     setValuePill('paddleUpStatus', data.paddleUp ? 'ok' : '', data.paddleUp ? 'Active' : 'Inactive');
     setValuePill('paddleDownStatus', data.paddleDown ? 'ok' : '', data.paddleDown ? 'Active' : 'Inactive');
 
+    // DSG paddle live readout (DSG Paddle Output card). 255 = that frame hasn't been seen.
+    if (document.getElementById('paddleSending')) {
+      const paddleMode = (document.getElementById('paddleOutput') || {}).value || 'Off';
+      const sendNames = { 0: 'Nothing pulled', 1: 'Paddle -', 2: 'Paddle +', 3: 'Both' };
+      // Frames a real gateway is already sending, so Can2Cluster stays quiet on them
+      const ownedIds = [];
+      if (data.paddleGatewayPresent && paddleMode !== 'PQ') ownedIds.push('0x3DD');
+      if (data.paddlePqGatewayPresent && paddleMode !== 'MQB') ownedIds.push('0x38A');
+      if (ownedIds.length) {
+        setValuePill('paddleSending', 'warn', 'Gateway owns ' + ownedIds.join(' + '));
+      } else if (paddleMode === 'Off') {
+        setValuePill('paddleSending', '', 'Off');
+      } else {
+        const sending = data.paddleSending || 0;
+        setValuePill('paddleSending', sending ? 'ok' : '', sendNames[sending] || '--');
+      }
+
+      const leverNames = { 0: 'Init', 4: 'Not pressed', 5: 'D', 6: 'N', 7: 'R', 8: 'P', 10: 'Tip +', 11: 'Tip -', 12: 'S', 13: 'L', 14: 'M gate', 15: 'Error' };
+      if (data.mqbLever === undefined || data.mqbLever === 255) setValuePill('mqbLever', '', 'Not seen');
+      else setValuePill('mqbLever', data.mqbLever === 15 ? 'bad' : 'ok', leverNames[data.mqbLever] || ('Pos ' + data.mqbLever));
+
+      const tipNames = { 0: 'None (D/S)', 1: 'M gate', 2: 'Paddle (temporary)', 3: 'Unknown' };
+      if (data.mqbTipState === undefined || data.mqbTipState === 255) setValuePill('mqbTipMode', '', 'Not seen');
+      else setValuePill('mqbTipMode', data.mqbTipState === 2 ? 'ok' : '', tipNames[data.mqbTipState]);
+
+      setValuePill('dsgGear', '', data.dsgGear ? String(data.dsgGear) : '-');
+
+      const warnNames = { 0: 'None', 1: 'Level I', 2: 'Level II', 3: 'Restricted', 4: 'D only', 5: 'Roll-away', 6: 'Paddle limp + warn', 7: 'Paddle limp', 8: 'Speed limit' };
+      if (data.mqbGearboxWarning === undefined || data.mqbGearboxWarning === 255) setValuePill('mqbGearboxWarning', '', 'Not seen');
+      else setValuePill('mqbGearboxWarning', data.mqbGearboxWarning ? 'warn' : 'ok', warnNames[data.mqbGearboxWarning] || ('Code ' + data.mqbGearboxWarning));
+    }
+
     // Coolant gauge live data
     if (document.getElementById('liveCoolantTemp')) {
       document.getElementById('liveCoolantTemp').textContent =
@@ -602,23 +648,20 @@ async function fetchStatus() {
       drawCoolantCurve();
     }
 
-    // Board & I2C diagnostics
-    if (data.i2c) {
-      const i2c = data.i2c;
-      const setTxt = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
-      setTxt('liveBoard', i2c.newBoard ? 'New (I2C)' : 'Old (GPIO)');
-      if (i2c.newBoard) {
-        setTxt('liveMcp4725', i2c.mcp4725 ? 'Detected' : 'Missing');
-        setTxt('liveTca9554', i2c.tca9554 ? 'Detected' : 'Missing');
-        setTxt('liveCoolantDac', i2c.coolantDac);
-        setTxt('liveTcaInputs', '0x' + (i2c.tcaInputs || 0).toString(16).padStart(2, '0').toUpperCase());
-        setTxt('liveTcaInt', i2c.tcaIntCount);
-      } else {
-        setTxt('liveMcp4725', 'n/a');
-        setTxt('liveTca9554', 'n/a');
-        setTxt('liveCoolantDac', 'n/a');
-        setTxt('liveTcaInputs', 'n/a');
-        setTxt('liveTcaInt', 'n/a');
+    // Board diagnostics (S3-only items are hidden on the DevKit by applyBoard)
+    if (data.boardInfo) {
+      const info = data.boardInfo;
+      setText('liveBoard', info.name || info.board);
+      if (info.board === 'esp32s3') {
+        setText('liveMcp4725', info.mcp4725 ? 'Detected' : 'Missing');
+        setText('liveCoolantDac', info.coolantDac);
+        setText('liveBoardId', info.boardIdMv + ' mV');
+        setText('liveCanTerm', info.canTermination ? 'On (120R)' : 'Off');
+        setText('liveOutputPullUp', info.outputPullUp ? 'On (12V)' : 'Off');
+        let biasText = 'None';
+        if (info.speedBias === 1) biasText = 'Pull-up (12V)';
+        if (info.speedBias === 2) biasText = 'Pull-down';
+        setText('liveSpeedBias', biasText);
       }
     }
 
@@ -1060,6 +1103,24 @@ function showNotification(message, type = "success") {
 function setText(id, val) {
   const el = document.getElementById(id);
   if (el) el.textContent = val;
+}
+
+// One web page serves both boards. Anything marked data-board="esp32" (DevKit)
+// or data-board="esp32s3" (S3) is only shown on that board; <option>s are
+// also disabled so they can't be picked.
+function applyBoard(board) {
+  document.querySelectorAll('[data-board]').forEach(function (el) {
+    const isThisBoard = (el.dataset.board === board);
+    // inline style beats any display: rule in style.css (the hidden attribute doesn't)
+    if (isThisBoard) {
+      el.style.display = '';
+    } else {
+      el.style.display = 'none';
+    }
+    if (el.tagName === 'OPTION') {
+      el.disabled = !isThisBoard;
+    }
+  });
 }
 
 // ============================================================================

@@ -12,7 +12,7 @@ void setupTasks()
   xTaskCreatePinnedToCore(taskTP20,       "taskTP20",       4096, NULL,  3, NULL,    1);
   xTaskCreatePinnedToCore(taskUDS,        "taskUDS",        4096, NULL,  3, NULL,    1);
   xTaskCreatePinnedToCore(parseDSG,       "parseDSG",       6000, NULL,  4, NULL,    1);
-  xTaskCreatePinnedToCore(broadcastGRA,   "broadcastGRA",   4000, NULL,  5, NULL,    1);
+  xTaskCreatePinnedToCore(broadcastPaddles, "broadcastPaddles", 4000, NULL, 5, NULL,  1); // reads the paddles and sends 0x3DD / 0x38A
   xTaskCreatePinnedToCore(broadcastSpeed, "broadcastSpeed", 4000, NULL,  6, NULL,    1);
   xTaskCreatePinnedToCore(parseGPS,       "parseGPS",       6000, NULL,  7, &gpsTaskHandle, 1);
   xTaskCreatePinnedToCore(updateSpeed,    "updateSpeed",    4096, NULL,  9, &updateSpeedHandle, 1);
@@ -65,7 +65,7 @@ void showState(void *arg)
 
     DEBUG_STACK("    stackWriteEEP: %d", stackWriteEEP); // incrememting value for checking the response to vars...
 
-    DEBUG_STACK("    stackbroadcastGRA: %d", stackbroadcastGRA);     // incrememting value for checking the response to vars...
+    DEBUG_STACK("    stackbroadcastPaddles: %d", stackbroadcastPaddles); // incrememting value for checking the response to vars...
     DEBUG_STACK("    stackbroadcastSpeed: %d", stackbroadcastSpeed); // incrememting value for checking the response to vars...
     DEBUG_STACK("    stackparseGPS: %d", stackparseGPS);             // incrememting value for checking the response to vars...
     DEBUG_STACK("    stackparseDSG: %d", stackparseDSG);             // incrememting value for checking the response to vars...
@@ -303,10 +303,11 @@ void outputControlTask(void *args)
     bool blinkOwnsEPC = blinkState.active && blinkState.boolEPC;
 
     // The coolant gauge (if enabled) owns one of the EML/EPC pins as a PWM
-    // output on the OLD board — skip the digital drive for that pin and let
-    // updateCoolantOutput handle it. On the new board coolant is a separate DAC.
-    bool coolantOwnsEML = (!isNewBoard && coolantOutput == 1);
-    bool coolantOwnsEPC = (!isNewBoard && coolantOutput == 2);
+    // output on the DevKit — skip the digital drive for that pin and let
+    // updateCoolantOutput handle it. On the S3 coolant has its own pin, so
+    // coolantOutput is never EML/EPC there and these stay false.
+    bool coolantOwnsEML = (coolantOutput == COOLANT_ON_EML);
+    bool coolantOwnsEPC = (coolantOutput == COOLANT_ON_EPC);
 
     // Normal EML/EPC drive, unless the pin is owned by the blink sequence, the
     // coolant PWM gauge, or held by a diagnostic test (handled below).
@@ -366,6 +367,7 @@ void checkError(void *args)
       triggerLED = false;
     }
 
+#if hasOnboardLED // the S3 board has no LED
     if (triggerLED)
     {
       digitalWrite(onboardLED, HIGH); // turn internal LED on
@@ -374,6 +376,7 @@ void checkError(void *args)
     {
       digitalWrite(onboardLED, LOW); // turn internal LED off
     }
+#endif
     vTaskDelay(pdMS_TO_TICKS(1000));
   }
 }

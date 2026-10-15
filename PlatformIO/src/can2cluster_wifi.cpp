@@ -198,6 +198,17 @@ static bool handleTestAction(const String &action)
     tempShiftLight = true;
     return true;
   }
+  // "Test Paddle +/-": broadcastPaddles() turns this into a short pull, exactly as if the paddle was pulled
+  if (action == "paddleTestUp")
+  {
+    paddleTestCmd = MQB_PADDLE_UP;
+    return true;
+  }
+  if (action == "paddleTestDown")
+  {
+    paddleTestCmd = MQB_PADDLE_DOWN;
+    return true;
+  }
 
   return false;
 }
@@ -218,6 +229,46 @@ static void applyCoolantExclusivity()
     testEPC = false;
     if (dsgParkMode == "EPC") dsgParkMode = "None";
   }
+}
+
+// The coolant output choice as the word the web page uses
+static const char *coolantOutputName()
+{
+  if (coolantOutput == COOLANT_ON_EML)
+  {
+    return "EML";
+  }
+  if (coolantOutput == COOLANT_ON_EPC)
+  {
+    return "EPC";
+  }
+  if (coolantOutput == COOLANT_ON_GAUGE)
+  {
+    return "Gauge";
+  }
+  return "Off";
+}
+
+// Turn the word from the web page back into a coolant output choice.
+// Only choices this board actually has are accepted - anything else = Off.
+static uint8_t coolantOutputFromName(String mode)
+{
+#if BOARD_S3
+  if (mode == "Gauge")
+  {
+    return COOLANT_ON_GAUGE;
+  }
+#else
+  if (mode == "EML")
+  {
+    return COOLANT_ON_EML;
+  }
+  if (mode == "EPC")
+  {
+    return COOLANT_ON_EPC;
+  }
+#endif
+  return COOLANT_OFF;
 }
 
 // Add or update a calibration point (temperature -> current jog duty), keeping
@@ -264,7 +315,7 @@ static void coolantDeletePoint(uint8_t index)
 static void sendCoolantCalState(AsyncWebServerRequest *request)
 {
   JsonDocument doc;
-  doc["output"] = coolantOutput == 1 ? "EML" : (coolantOutput == 2 ? "EPC" : "Off");
+  doc["output"] = coolantOutputName();
   doc["freq"] = coolantPwmFreq;
   doc["calMode"] = coolantCalMode;
   doc["duty"] = coolantCalDutyNow;
@@ -298,6 +349,8 @@ void setupWebRoutes()
             {
     JsonDocument doc;
     doc["FW_VERSION"] = FW_VERSION;
+    doc["board"] = BOARD_ID;        // "esp32" (DevKit) or "esp32s3" - the page shows/hides board-only options from this
+    doc["boardName"] = BOARD_NAME;
 
     // Settings
     doc["hasNeedleSweep"] = hasNeedleSweep;
@@ -317,7 +370,7 @@ void setupWebRoutes()
     doc["paddleOutput"] = paddleOutput;
 
     // Coolant gauge output
-    doc["coolantOutput"] = coolantOutput == 1 ? "EML" : (coolantOutput == 2 ? "EPC" : "Off");
+    doc["coolantOutput"] = coolantOutputName();
     doc["coolantPwmFreq"] = coolantPwmFreq;
     doc["coolantWarnTemp"] = coolantWarnTemp;
     
@@ -413,6 +466,31 @@ void setupWebRoutes()
     doc["vehiclePark"] = vehiclePark;
     doc["paddleUp"] = boolPadUp;
     doc["paddleDown"] = boolPadDown;
+
+    // DSG paddle live readout (DSG Paddle Output card). 255 = that frame not seen yet.
+    // The paddle values are "volatile" (other tasks change them), so take a plain copy of each first.
+    uint8_t paddleSending = paddleCmdSent;         // 0 none, 1 down, 2 up, 3 both
+    uint8_t leverPosition = mqbLeverPosition;      // 0x0AF lever position (MQB_LEVER_x)
+    uint8_t tipState = mqbTipState;                // 0x0B1 tip mode (MQB_TIP_x)
+    uint8_t gearboxWarning = mqbGearboxWarning;    // 0x394 gearbox warning (0 = none)
+    bool isGatewayPresent = false;                 // a real gateway is sending 0x3DD, so we aren't
+    uint32_t otherSenderMs = mqbPaddleOtherSenderMs;
+    if (otherSenderMs != 0 && (millis() - otherSenderMs) < MQB_PADDLE_OTHER_SENDER_MS) {
+      isGatewayPresent = true;
+    }
+    bool isPqGatewayPresent = false;               // a real gateway is sending 0x38A, so we aren't
+    uint32_t graOtherSenderMs = graPaddleOtherSenderMs;
+    if (graOtherSenderMs != 0 && (millis() - graOtherSenderMs) < GRA_OTHER_SENDER_MS) {
+      isPqGatewayPresent = true;
+    }
+    doc["paddleSending"] = paddleSending;
+    doc["paddleGatewayPresent"] = isGatewayPresent;
+    doc["paddlePqGatewayPresent"] = isPqGatewayPresent;
+    doc["mqbLever"] = leverPosition;
+    doc["mqbTipState"] = tipState;
+    doc["mqbGearboxWarning"] = gearboxWarning;
+    doc["dsgGear"] = gear;                         // gear from the gearbox (0x0AD on MQB)
+
     doc["testRPM"] = testRPM;
     doc["tempRPM"] = tempRPM;
     doc["testSpeedo"] = testSpeedo;
@@ -436,15 +514,18 @@ void setupWebRoutes()
     doc["coolantCalMode"] = coolantCalMode;
     doc["coolantOutputActive"] = (coolantOutput != 0);
 
-    // Board revision + I2C peripheral diagnostics
-    JsonObject i2c = doc["i2c"].to<JsonObject>();
-    i2c["board"] = isNewBoard ? "new" : "old";
-    i2c["newBoard"] = isNewBoard;
-    i2c["mcp4725"] = i2cMcpPresent;
-    i2c["tca9554"] = i2cTcaPresent;
-    i2c["tcaInputs"] = tcaInputShadow;
-    i2c["tcaIntCount"] = (uint32_t)tcaIntCount;
-    i2c["coolantDac"] = coolantAppliedDuty;
+    // Board diagnostics (Diagnostics tab)
+    JsonObject boardInfo = doc["boardInfo"].to<JsonObject>();
+    boardInfo["board"] = BOARD_ID;
+    boardInfo["name"] = BOARD_NAME;
+#if BOARD_S3
+    boardInfo["mcp4725"] = i2cMcpPresent;              // coolant DAC answered on I2C
+    boardInfo["coolantDac"] = coolantAppliedDuty;      // value written to the DAC (0-4095)
+    boardInfo["boardIdMv"] = boardVersionMilliVolts;   // BOARD_VER pin at boot
+    boardInfo["canTermination"] = (bool)useCANTermination;
+    boardInfo["outputPullUp"] = (bool)useOutputPullUp;
+    boardInfo["speedBias"] = speedInputBias;           // 0 none, 1 pull-up, 2 pull-down
+#endif
     
     /*
      Settings
@@ -577,7 +658,7 @@ void setupWebRoutes()
     }
     if (key == "paddleOutput") {
       String mode = value.as<const char*>();
-      if (mode == "All" || mode == "MQB" || mode == "Shifter" || mode == "PQ") {
+      if (mode == "Off" || mode == "MQB" || mode == "PQ" || mode == "All") {
         paddleOutput = mode;
         settingApplied = true;
       }
@@ -593,7 +674,7 @@ void setupWebRoutes()
 
     if (key == "coolantOutput") {
       String mode = value.as<const char*>();
-      coolantOutput = (mode == "EML") ? 1 : (mode == "EPC") ? 2 : 0;
+      coolantOutput = coolantOutputFromName(mode);
       applyCoolantExclusivity();
       settingApplied = true;
     }
@@ -768,6 +849,8 @@ void connectWifi()
   ocfg.fwVersion  = FW_VERSION;
   ocfg.product    = "Can2Cluster";
   ocfg.githubRepo = "adamforbes92/can2cluster"; // Releases/ + releases.json for "Check for updates"
+  ocfg.boardId    = BOARD_ID;                   // "esp32" / "esp32s3": GitHub update only offers this board's firmware
+  ocfg.boardName  = BOARD_NAME;                 // shown on the OTA tab
   ocfg.verbose    = serialDebugWifi;            // honour the project's WiFi debug gating
   otaManagerInit(&ocfg);
 

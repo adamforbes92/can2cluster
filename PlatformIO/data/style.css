@@ -768,3 +768,20 @@ input[type="file"] {
 .ota-wifi-row input::placeholder { color: var(--muted); }
 .ota-wifi-row input:focus { outline: none; border-color: var(--accent); }
 .btn.ota-icon { flex: none; width: 44px; padding: 0; font-size: 18px; line-height: 1; }
+
+/* --- no text highlight on long press ------------------------------------ */
+/* Pressing and holding on a phone starts selecting text (and pops up the copy
+   menu on iPhone), which gets in the way of the buttons and sliders. Switch it
+   off for the whole page... */
+body {
+  -webkit-user-select: none;    /* Safari / iPhone */
+  user-select: none;            /* every other browser */
+  -webkit-touch-callout: none;  /* iPhone: no copy / look-up menu on long press */
+}
+/* ...but keep it where you type, or might want to copy something out:
+   text boxes, the monitor / log windows (pre) and repo names / commands (code) */
+input, textarea, select, pre, code, [contenteditable] {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}

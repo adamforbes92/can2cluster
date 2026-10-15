@@ -4,9 +4,9 @@
 
 void canInit()
 {
-  // Chassis CAN pins differ between boards (new board reuses GPIO16/26).
-  const gpio_num_t txPin = (gpio_num_t)(isNewBoard ? pinTX_CAN_NEW : pinTX_CAN);
-  const gpio_num_t rxPin = (gpio_num_t)(isNewBoard ? pinRX_CAN_NEW : pinRX_CAN);
+  // Chassis CAN pins (DevKit or S3 numbers, picked in _defs.h)
+  const gpio_num_t txPin = (gpio_num_t)pinTX_CAN;
+  const gpio_num_t rxPin = (gpio_num_t)pinRX_CAN;
 
   // Configure TWAI (CAN) controller
   twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT(txPin, rxPin, TWAI_MODE_NORMAL);
@@ -69,38 +69,52 @@ void canReceiveTask(void *args)
 // Monitors TWAI alerts and drives bus-off recovery.
 //
 // Sequence on bus-off:
-//   1. TWAI_ALERT_BUS_OFF fires.
+//   1. The controller goes bus-off (TWAI_ALERT_BUS_OFF fires).
 //   2. We call twai_initiate_recovery(), which puts the controller into
 //      "recovering" state. The controller waits for 128 occurrences of
 //      11 consecutive recessive bits before returning to "stopped".
 //   3. TWAI_ALERT_BUS_RECOVERED fires when that completes.
 //   4. We call twai_start() to bring the driver back online.
+//
+// The alerts only wake the task; what it does comes from the controller state,
+// read on every pass (at least once a second), so a missed alert or a failed
+// call is retried instead of leaving CAN dead until a power cycle. Nothing in
+// the firmware stops the controller on purpose, so a stopped one is always restarted.
 void canMonitorTask(void *args)
 {
+  bool wasBusOff = false;
   while (1)
   {
     uint32_t alerts = 0;
     // Block up to 1 s waiting for an alert. read_alerts also clears the bits.
-    if (twai_read_alerts(&alerts, pdMS_TO_TICKS(1000)) != ESP_OK)
+    if (twai_read_alerts(&alerts, pdMS_TO_TICKS(1000)) == ESP_OK)
+    {
+      if (alerts & TWAI_ALERT_ABOVE_ERR_WARN)
+      {
+        DEBUG_CAN("TWAI: error counter above warning level");
+      }
+      if (alerts & TWAI_ALERT_ERR_PASS)
+      {
+        DEBUG_CAN("TWAI: error-passive state entered");
+      }
+      if (alerts & TWAI_ALERT_RX_QUEUE_FULL)
+      {
+        DEBUG_CAN("TWAI: RX queue full — frames dropped");
+      }
+    }
+
+    twai_status_info_t st;
+    if (twai_get_status_info(&st) != ESP_OK)
     {
       continue;
     }
-
-    if (alerts & TWAI_ALERT_ABOVE_ERR_WARN)
+    if (st.state == TWAI_STATE_BUS_OFF)
     {
-      DEBUG_CAN("TWAI: error counter above warning level");
-    }
-    if (alerts & TWAI_ALERT_ERR_PASS)
-    {
-      DEBUG_CAN("TWAI: error-passive state entered");
-    }
-    if (alerts & TWAI_ALERT_RX_QUEUE_FULL)
-    {
-      DEBUG_CAN("TWAI: RX queue full — frames dropped");
-    }
-    if (alerts & TWAI_ALERT_BUS_OFF)
-    {
-      DEBUG_CAN("TWAI: BUS-OFF — initiating recovery");
+      if (!wasBusOff)
+      {
+        DEBUG_CAN("TWAI: BUS-OFF — initiating recovery");
+      }
+      wasBusOff = true;
       hasCAN = false;
       esp_err_t r = twai_initiate_recovery();
       if (r != ESP_OK)
@@ -108,13 +122,17 @@ void canMonitorTask(void *args)
         DEBUG_CAN("TWAI: twai_initiate_recovery() returned %d", (int)r);
       }
     }
-    if (alerts & TWAI_ALERT_BUS_RECOVERED)
+    else if (st.state == TWAI_STATE_STOPPED)
     {
-      DEBUG_CAN("TWAI: bus recovered — restarting driver");
       esp_err_t r = twai_start();
-      if (r != ESP_OK)
+      if (r == ESP_OK)
       {
-        DEBUG_CAN("TWAI: twai_start() after recovery returned %d", (int)r);
+        DEBUG_CAN("TWAI: %s — driver restarted", wasBusOff ? "bus recovered" : "controller was stopped");
+        wasBusOff = false;
+      }
+      else
+      {
+        DEBUG_CAN("TWAI: twai_start() returned %d", (int)r);
       }
     }
   }
@@ -323,9 +341,12 @@ void onBodyRX(const twai_message_t &frame)
   {
     // MQB Getriebe_11 (0x0AD) - DSG status broadcast.
     //   SG_ GE_Fahrstufe : 42|4@1+  -> byte 5 bits 2..5, gear-lever position
-    // Values: 0=init, 5=P, 6=R, 7=N, 8=D, 9=S, 13=tiptronic.
+    // Values: 0=between positions, 5=P, 6=R, 7=N, 8=D, 9=S, 10=E, 13=tip from S,
+    // 14=tip from D (M gate, or paddles pulled in D). V4.01: 14 and 10 were
+    // missing, so the gear froze in the M gate / while using the paddles in D.
     //   SG_ GE_Zielgang  -> byte 7 high nibble, target/engaged gear (1..7, 0 = none)
-    // Verified against OpenHaldex MQB log "gears all inc tip and sport.csv".
+    // Verified against the OpenHaldex MQB logs "gears all inc tip and sport.csv"
+    // (13), "gears all inc tip.csv" and "drive to fourth, sport, tc, etc.csv" (14).
     // Also feeds the PQ 'lever'/'gear' globals so the DSG speed source works on MQB.
     const uint8_t fahrstufe = (frame.data[5] >> 2) & 0x0F;
     const uint8_t zielgang = (frame.data[7] >> 4) & 0x0F;
@@ -353,15 +374,33 @@ void onBodyRX(const twai_message_t &frame)
       gear = 0;
       break;
     case MQB_FAHRSTUFE_D:
+    case MQB_FAHRSTUFE_E:
     case MQB_FAHRSTUFE_S:
     case MQB_FAHRSTUFE_TIP:
+    case MQB_FAHRSTUFE_TIP_D:
       vehiclePark = false;
       vehicleReverse = false;
       vehicleNeutral = false;
-      lever = (fahrstufe == MQB_FAHRSTUFE_D) ? LEVER_D
-              : (fahrstufe == MQB_FAHRSTUFE_S) ? LEVER_S
-                                               : LEVER_TIPTRONIC_ON;
-      gear = (zielgang >= 1 && zielgang <= 6) ? zielgang : 0;
+      if (fahrstufe == MQB_FAHRSTUFE_D || fahrstufe == MQB_FAHRSTUFE_E)
+      {
+        lever = LEVER_D;
+      }
+      else if (fahrstufe == MQB_FAHRSTUFE_S)
+      {
+        lever = LEVER_S;
+      }
+      else
+      {
+        lever = LEVER_TIPTRONIC_ON; // manual: lever in the M gate, or a paddle pulled in D/S
+      }
+      if (zielgang >= 1 && zielgang <= 6)
+      {
+        gear = zielgang;
+      }
+      else
+      {
+        gear = 0;
+      }
       break;
     default:
       // init / unknown - leave current state untouched
@@ -370,62 +409,56 @@ void onBodyRX(const twai_message_t &frame)
     break;
   }
 
-  case SHIFTER_PADDLE_ID:
+  case MQB_SELECTOR_ID:
   {
-    // A real frame from the factory selector (we never receive our own TX).
-    // Its presence switches broadcastGRA() into shadow mode.
-    shifterRealSeenMs = millis();
-
-    // Shadow: while a paddle press is being held, re-send this exact frame
-    // straight away with only the state nibble swapped. Counter and the
-    // handshake answer bytes (D3/D4) are the selector's own, so they stay
-    // valid. Nothing is sent while idle. See SHIFTER_PADDLE_ID comment.
-    const uint8_t txState = shifterTxState;
-    if (txState != 0 && frame.data_length_code >= 4)
+    // MQB selector lever (Waehlhebel_03). Read only, for the web page - we
+    // never send this ID (see MQB_SELECTOR_ID in _defs.h).
+    // byte 0 top 4 bits = lever position (14 = M gate, 10 = Tip+, 11 = Tip-)
+    // byte 1 top 4 bits = the same position inverted, as a check
+    if (frame.data_length_code >= 2)
     {
-      twai_message_t shadow = frame;
-      shadow.data[1] = (txState << 4) | (frame.data[1] & 0x0F);
-      shadow.data[0] = (~shadow.data[1] & 0xF0) | (frame.data[0] & 0x0F);
-      if (twai_transmit(&shadow, pdMS_TO_TICKS(5)) != ESP_OK)
-      { // failed, ignore - the next real frame is 10 ms away
+      uint8_t leverPosition = frame.data[0] >> 4;         // byte 0 bits 4-7: WH_SensorPos_roh
+      uint8_t leverPositionInverted = frame.data[1] >> 4; // byte 1 bits 4-7: WH_SensorPos_roh_inv
+      if ((leverPosition + leverPositionInverted) == 15)  // the two always add up to 15 in a good frame
+      {
+        mqbLeverPosition = leverPosition;
       }
     }
-
-#if serialDebugPaddles
-    // Debug-only decode of the selector's own tip gate. Not wired into
-    // padUpFunc/padDownFunc so it can't feed back into our own emulation.
-    const uint8_t stateNibble = (frame.data[1] >> 4) & 0x0F;
-    if (stateNibble == SHIFTER_PADDLE_STATE_UP)
-    {
-      DEBUG_PADDLES("Shifter CAN 0x%03X: paddle UP", SHIFTER_PADDLE_ID);
-    }
-    else if (stateNibble == SHIFTER_PADDLE_STATE_DOWN)
-    {
-      DEBUG_PADDLES("Shifter CAN 0x%03X: paddle DOWN", SHIFTER_PADDLE_ID);
-    }
-#endif
     break;
   }
 
-  case SHIFTER_PADDLE_QUERY_ID:
+  case GETRIEBE_17:
   {
-    // Gearbox -> shifter. Latch the payload so broadcastGRA() can answer the
-    // query in its next 0x0AF frames (see SHIFTER_PADDLE_QUERY_ID comment).
-    shifterQueryRaw = ((uint32_t)frame.data[0] << 16) | ((uint32_t)frame.data[1] << 8) | frame.data[2];
-    shifterQueryMs = millis();
+    // MQB Getriebe_17 (0x0B1) - gearbox tip mode, read for the web page.
+    // byte 2 bits 0-1 = GE_TippZustand: 0 none, 1 M gate, 2 temporary from a paddle
+    mqbTipState = frame.data[2] & 0x03;
+    break;
+  }
 
-#if serialDebugPaddles
-    // The hi-nibble is the paddle state the gearbox has accepted: the one
-    // place that proves our 0x0AF frames are being taken seriously.
-    static uint8_t lastAck = 0xFF;
-    const uint8_t ack = frame.data[0] >> 4;
-    if (ack != lastAck)
-    {
-      lastAck = ack;
-      DEBUG_PADDLES("Gearbox CAN 0x%03X: accepted paddle state %s", SHIFTER_PADDLE_QUERY_ID,
-                    (ack == 0xA) ? "UP" : (ack == 0xB) ? "DOWN" : (ack == 0xE) ? "idle" : "?");
-    }
-#endif
+  case WBA_03:
+  {
+    // MQB WBA_03 (0x394) - gearbox -> cluster display, read for the web page.
+    // byte 2 bits 4-7 = WBA_GE_Warnung_02: 0 none, 1 error level I, 2 level II, ...
+    mqbGearboxWarning = frame.data[2] >> 4;
+    break;
+  }
+
+  case MQB_PADDLE_ID:
+  {
+    // A 0x3DD we didn't send (the CAN chip never hands us our own frames), so
+    // a real gateway is on the bus. broadcastPaddles() then stays quiet on
+    // 0x3DD rather than fight it over the paddle bits.
+    mqbPaddleOtherSenderMs = millis();
+    break;
+  }
+
+  case GRA_ID:
+  {
+    // The same for PQ: a 0x38A we didn't send means a real gateway is already
+    // passing the steering column's cruise/paddle frame onto this bus.
+    // broadcastPaddles() then stays quiet on 0x38A - two senders would make the
+    // counter jump about and the paddle bits flicker.
+    graPaddleOtherSenderMs = millis();
     break;
   }
 
@@ -451,259 +484,237 @@ void onBodyRX(const twai_message_t &frame)
   }
 }
 
-void sendPaddleUpFrame()
+// Send one MQB Gateway_74 (0x3DD) frame. Byte 7 carries the paddles. Bytes 0-6
+// are the values a real MQB gateway sent in the customer's log - they're for
+// other modules (start-stop, climate, ACC); the gearbox only reads byte 0 bit 2
+// and byte 7. Byte map from the K-matrix, see MQB_PADDLES.md.
+void sendMqbPaddleFrame(uint8_t paddleBits)
 {
-  twai_message_t paddlesUp{}; // 0x7C0
-  paddlesUp.identifier = GRA_ID;
-  paddlesUp.data_length_code = 4;
-  paddlesUp.data[0] = 0x0E;     // was 0xB7 chksum = byte 2 XOR byte 3 XOR byte 4
-  paddlesUp.data[2] = 0x0C;     // was 0x34
-  paddlesUp.data[3] = 0x02;     //
-  bitSet(paddlesUp.data[3], 1); // set high (trigger)
-  if (twai_transmit(&paddlesUp, pdMS_TO_TICKS(100)) != ESP_OK)
+  twai_message_t mqbPaddle{}; // {} = start with every part of the frame at zero
+  mqbPaddle.identifier = MQB_PADDLE_ID;
+  mqbPaddle.data_length_code = 8;
+  mqbPaddle.data[0] = 0x08;       // "old data" flags: bit 3 MFG_01_alt = 1. Bit 2 LIN_2_alt = 0 = steering-wheel data is fresh (the gearbox reads this one)
+  mqbPaddle.data[1] = 0x04;       // bit 2 ACC_07_alt = 1 (no ACC radar), the rest 0
+  mqbPaddle.data[2] = 0x20;       // bits 4-5 EPS_Lenkerposition = 2 (right-hand drive), start-stop info 0
+  mqbPaddle.data[3] = 0x00;       // bit 0 MF_Anlassersperre = 0 (starter NOT blocked), start-stop info 0
+  mqbPaddle.data[4] = 0xFE;       // ACC_Folgebeschl = 254 "neutral value" (no ACC request)
+  mqbPaddle.data[5] = 0x00;       // KL_Geblspng_Soll = 0 (climate fan)
+  mqbPaddle.data[6] = 0x0A;       // bits 0-3 recirculation flap = 10, bits 6-7 ACC freewheel info = 0
+  mqbPaddle.data[7] = paddleBits; // bit 0 MFL_Tip_Down, bit 1 MFL_Tip_Up, bit 2 LS_Tiptronic_Fehler = 0 (no paddle fault)
+
+  if (twai_transmit(&mqbPaddle, pdMS_TO_TICKS(5)) == ESP_OK)
   {
-    // failed, ignore
+    analyzerQueueFrame(mqbPaddle, 0); // copy it into the SavvyCAN stream, so a log taken through Can2Cluster shows it too
   }
 }
 
-void sendPaddleDownFrame()
+// Send one PQ GRA_Neu (0x38A) frame. Byte 3 carries the paddles. Byte map from
+// the VW PQ35/46 K-matrix, see the GRA notes in _defs.h.
+void sendGraPaddleFrame(uint8_t paddleBits)
 {
-  twai_message_t paddlesDown{}; // 0x7C0
-  paddlesDown.identifier = GRA_ID;
-  paddlesDown.data_length_code = 4;
-  paddlesDown.data[0] = 0x0D; // chksum = byte 2 XOR byte 3 XOR byte
-  paddlesDown.data[2] = 0x0C;
-  paddlesDown.data[3] = 0x01;
-  bitSet(paddlesDown.data[3], 1); // set high (trigger)
-  if (twai_transmit(&paddlesDown, pdMS_TO_TICKS(100)) != ESP_OK)
+  twai_message_t graFrame{}; // {} = start with every part of the frame at zero
+  graFrame.identifier = GRA_ID;
+  graFrame.data_length_code = 4;
+  graFrame.data[1] = 0x00; // cruise buttons: none pressed
+
+  // Byte 2: counter in the top half, sender code in bits 2-3, cruise SET (bit 0) and RESUME (bit 1) left at 0
+  uint8_t counterBits = GRA_counter << 4; // counter 0-15 into bits 4-7
+  uint8_t senderBits = GRA_SENDER << 2;   // sender code into bits 2-3
+  graFrame.data[2] = counterBits | senderBits;
+
+  graFrame.data[3] = paddleBits; // bit 0 = tip down, bit 1 = tip up
+
+  GRA_crc = graFrame.data[1] ^ graFrame.data[2] ^ graFrame.data[3]; // checksum = byte 1 XOR byte 2 XOR byte 3
+  graFrame.data[0] = GRA_crc;
+
+  if (twai_transmit(&graFrame, pdMS_TO_TICKS(5)) == ESP_OK)
   {
-    // failed, ignore
+    analyzerQueueFrame(graFrame, 0); // copy it into the SavvyCAN stream
+  }
+
+  // Next counter value: 0-15, then back to 0
+  GRA_counter++;
+  if (GRA_counter > GRA_COUNTER_MAX)
+  {
+    GRA_counter = 0;
   }
 }
 
-void broadcastGRA(void *args)
+// Paddle task. Every 10 ms it reads the paddle switches and sends them to the
+// gearbox in the frame(s) picked on the web page (paddleOutput):
+//   MQB Gateway_74 0x3DD - every 100 ms, plus straight away when a paddle changes
+//   PQ  GRA_Neu    0x38A - every 20 ms
+// A pull is sent for as long as the paddle is held (like the factory parts),
+// with a minimum length so a very quick tap still reaches the gearbox.
+// It doesn't depend on the speed source any more: "Off" sends nothing.
+void broadcastPaddles(void *args)
 {
-  // 0x01 = down, 0x02 = up, 0x03 = both (MQB_PADDLE_* values). One latch feeds
-  // three outputs with their own hold times:
-  //   PQ GRA 0x38A      20 ms frame, 80 ms pulse (PQ only knows single up/down)
-  //   MQB paddle 0x3DD  100 ms frame, MQB_PADDLE_HOLD_MS
-  //   selector 0x0AF    10 ms frame (shadow or standalone), SHIFTER_PADDLE_HOLD_MS
-  // paddleOutput (web UI) picks which of them actually go on the bus.
-  uint8_t activePaddleCmd = 0x00;
-  uint32_t graHoldUntilMs = 0;
-  uint32_t mqbHoldUntilMs = 0;
-  uint32_t shifterHoldUntilMs = 0;
-
-  // This task runs at the selector's 10 ms frame rate (broadcastGRARefresh);
-  // the slower frames are divided down from it.
-  uint8_t tick = 0; // 0..9, wraps every 100 ms
+  uint8_t tick = 0;                      // counts 10 ms loops, 0..9 (0 = the 100 ms slot for 0x3DD)
+  uint8_t lastMqbBits = MQB_PADDLE_NONE; // paddle bits in the last loop, to spot a change
+  bool wasUpHeld = false;                // paddle + on the last loop
+  bool wasDownHeld = false;              // paddle - on the last loop
+  uint32_t upPulledMs = 0;               // millis() when paddle + was last pulled (0 = not yet)
+  uint32_t downPulledMs = 0;             // millis() when paddle - was last pulled (0 = not yet)
+  uint8_t testUpLoopsLeft = 0;           // 10 ms loops left of a web page "Test Paddle +" pull
+  uint8_t testDownLoopsLeft = 0;         // 10 ms loops left of a web page "Test Paddle -" pull
 
   while (1)
   {
 #if detailedDebugStack
-    stackbroadcastGRA = uxTaskGetStackHighWaterMark(NULL); // for capturing how much memory the task is using
+    stackbroadcastPaddles = uxTaskGetStackHighWaterMark(NULL); // for capturing how much memory the task is using
 #endif
 
-    // Only stream the paddle frames when DSG is the active speed source.
-    // The PQ frame must be broadcast continuously (rolling counter + CRC) for
-    // the paddles to work, so it can't be gated on a pending paddle press alone
-    // — a one-shot frame would break counter/checksum continuity. When DSG isn't
-    // selected, nothing goes on the bus and any stale paddle triggers are cleared.
-    if (!useDSG)
+    // --- 1. Read the paddle switches (debounced) ---
+    updateButtons();
+    uint32_t now = millis();
+    bool isUpHeld = isPaddleUpHeld;
+    bool isDownHeld = isPaddleDownHeld;
+
+    // The web page "Test Paddle" buttons: take the request, then count it down
+    // here as a pull PADDLE_TEST_HOLD_MS long
+    if (paddleTestCmd == MQB_PADDLE_UP)
     {
-      padUpTxPending = false;
-      padDownTxPending = false;
-      activePaddleCmd = 0x00;
-      shifterTxState = 0;
-      vTaskDelay(pdMS_TO_TICKS(broadcastGRARefresh));
-      continue;
+      testUpLoopsLeft = PADDLE_TEST_HOLD_MS / broadcastPaddlesRefresh;
+      paddleTestCmd = MQB_PADDLE_NONE; // request taken
+    }
+    if (paddleTestCmd == MQB_PADDLE_DOWN)
+    {
+      testDownLoopsLeft = PADDLE_TEST_HOLD_MS / broadcastPaddlesRefresh;
+      paddleTestCmd = MQB_PADDLE_NONE; // request taken
+    }
+    if (testUpLoopsLeft > 0)
+    {
+      isUpHeld = true;
+      testUpLoopsLeft--;
+    }
+    if (testDownLoopsLeft > 0)
+    {
+      isDownHeld = true;
+      testDownLoopsLeft--;
     }
 
-    tick = (tick + 1) % 10;
-    const bool tick20 = (tick % 2) == 0;
-    const bool tick100 = tick == 0;
-
-    const bool sendPQ = (paddleOutput == "PQ") || (paddleOutput == "All");
-    const bool sendMQB = (paddleOutput == "MQB") || (paddleOutput == "All");
-    const bool sendShifter = (paddleOutput == "Shifter") || (paddleOutput == "All");
-
-    const uint8_t graPulseMS = 80; // PQ GRA: how long to hold the paddle signal high for (ms)
-
-    // Latch a fresh paddle press into all three hold timers.
-    uint8_t newCmd = 0x00;
-    if (padUpTxPending && padDownTxPending)
+    // Note the moment each paddle is pulled (for the minimum lengths below)
+    if (isUpHeld && !wasUpHeld)
     {
+      upPulledMs = now;
 #if serialDebugPaddles
-      DEBUG_PADDLES("Paddle up/down triggered together");
+      DEBUG_PADDLES("Paddle + pulled");
 #endif
-      newCmd = MQB_PADDLE_BOTH;
-      padUpTxPending = false;
-      padDownTxPending = false;
     }
-    else if (padUpTxPending)
+    if (isDownHeld && !wasDownHeld)
     {
+      downPulledMs = now;
 #if serialDebugPaddles
-      DEBUG_PADDLES("Paddle up");
+      DEBUG_PADDLES("Paddle - pulled");
 #endif
-      newCmd = MQB_PADDLE_UP;
-      padUpTxPending = false;
     }
-    else if (padDownTxPending)
+    wasUpHeld = isUpHeld;
+    wasDownHeld = isDownHeld;
+
+    // --- 2. Which frames go out (web page setting) ---
+    bool sendMQB = false;
+    bool sendPQ = false;
+    if (paddleOutput == "MQB" || paddleOutput == "All")
     {
+      sendMQB = true;
+    }
+    if (paddleOutput == "PQ" || paddleOutput == "All")
+    {
+      sendPQ = true;
+    }
+
+    // A real gateway is already sending 0x3DD (a factory MQB car, or a swap
+    // that kept its gateway): two senders would fight over the paddle bits.
+    uint32_t otherSenderMs = mqbPaddleOtherSenderMs;
+    if (otherSenderMs != 0 && (now - otherSenderMs) < MQB_PADDLE_OTHER_SENDER_MS)
+    {
+      sendMQB = false;
+    }
+
+    // The same for PQ: a real gateway is already sending 0x38A, so we stay quiet on it
+    uint32_t graOtherSenderMs = graPaddleOtherSenderMs;
+    if (graOtherSenderMs != 0 && (millis() - graOtherSenderMs) < GRA_OTHER_SENDER_MS)
+    {
+      sendPQ = false;
+    }
+
+    // --- 3. MQB Gateway_74 (0x3DD) ---
+    // A paddle counts as pulled while it's held, and for at least
+    // MQB_PADDLE_MIN_HOLD_MS after it was pulled (always 2+ frames).
+    uint8_t mqbBits = MQB_PADDLE_NONE;
+    if (isUpHeld || (upPulledMs != 0 && (now - upPulledMs) < MQB_PADDLE_MIN_HOLD_MS))
+    {
+      mqbBits = mqbBits | MQB_PADDLE_UP; // byte 7 bit 1: MFL_Tip_Up
+    }
+    if (isDownHeld || (downPulledMs != 0 && (now - downPulledMs) < MQB_PADDLE_MIN_HOLD_MS))
+    {
+      mqbBits = mqbBits | MQB_PADDLE_DOWN; // byte 7 bit 0: MFL_Tip_Down
+    }
+
+    if (sendMQB)
+    {
+      // The normal 100 ms slot, or straight away when the bits change (factory gateway behaviour)
+      if (tick == 0 || mqbBits != lastMqbBits)
+      {
+        sendMqbPaddleFrame(mqbBits);
+      }
+    }
 #if serialDebugPaddles
-      DEBUG_PADDLES("Paddle down");
+    if (mqbBits != lastMqbBits)
+    {
+      if (sendMQB)
+      {
+        DEBUG_PADDLES("Paddle bits now 0x%02X (sent on 0x3DD)", mqbBits);
+      }
+      else
+      {
+        DEBUG_PADDLES("Paddle bits now 0x%02X (0x3DD not being sent)", mqbBits);
+      }
+    }
 #endif
-      newCmd = MQB_PADDLE_DOWN;
-      padDownTxPending = false;
-    }
-    if (newCmd != 0x00)
+    lastMqbBits = mqbBits; // remembered even when 0x3DD is off, so switching it on doesn't send a stale change
+
+    // --- 4. PQ GRA_Neu (0x38A), every 20 ms ---
+    uint8_t graBits = MQB_PADDLE_NONE; // same bit values as MQB: bit 0 down, bit 1 up
+    if (isUpHeld || (upPulledMs != 0 && (now - upPulledMs) < GRA_PULSE_MIN_MS))
     {
-      const uint32_t now = millis();
-      activePaddleCmd = newCmd;
-      graHoldUntilMs = now + graPulseMS;
-      mqbHoldUntilMs = now + MQB_PADDLE_HOLD_MS;
-      shifterHoldUntilMs = now + SHIFTER_PADDLE_HOLD_MS;
+      graBits = graBits | MQB_PADDLE_UP;
     }
-
-    uint8_t graCmd = 0x00;     // what the PQ GRA frame carries this tick
-    uint8_t mqbCmd = 0x00;     // what the MQB 0x3DD frame carries this tick
-    uint8_t shifterCmd = 0x00; // what the selector 0x0AF frame carries this tick
-    if (activePaddleCmd != 0x00)
+    if (isDownHeld || (downPulledMs != 0 && (now - downPulledMs) < GRA_PULSE_MIN_MS))
     {
-      const uint32_t now = millis();
-      if ((int32_t)(now - graHoldUntilMs) < 0)
-      {
-        graCmd = activePaddleCmd;
-      }
-      if ((int32_t)(now - mqbHoldUntilMs) < 0)
-      {
-        mqbCmd = activePaddleCmd;
-      }
-      if ((int32_t)(now - shifterHoldUntilMs) < 0)
-      {
-        shifterCmd = activePaddleCmd;
-      }
-      if (graCmd == 0x00 && mqbCmd == 0x00 && shifterCmd == 0x00)
-      {
-        activePaddleCmd = 0x00;
-      }
+      graBits = graBits | MQB_PADDLE_DOWN;
     }
-
-    // --- PQ GRA frame (emulated, 20 ms): rolling counter + XOR checksum. PQ
-    // only recognises a single up/down, so a simultaneous press sends no pulse. ---
-    if (sendPQ && tick20)
+    if (graBits == MQB_PADDLE_BOTH)
     {
-      twai_message_t broadcastGRA{};
-      broadcastGRA.identifier = GRA_ID;
-      broadcastGRA.data_length_code = 4;
-      broadcastGRA.data[1] = 0x00;        // always zero
-      broadcastGRA.data[2] = GRA_counter; // full 8-bit rolling counter (0x00 > 0xFF)
-      broadcastGRA.data[3] = (graCmd == MQB_PADDLE_BOTH) ? 0x00 : graCmd;
-
-      GRA_crc = 0;
-      for (uint8_t i = 2; i < 5; i++)
-      {
-        GRA_crc ^= broadcastGRA.data[i]; // xor byte 2, 3, 4
-      }
-      broadcastGRA.data[0] = GRA_crc;
-
-      if (twai_transmit(&broadcastGRA, pdMS_TO_TICKS(100)) != ESP_OK)
-      { // failed, ignore
-      }
-
-      GRA_counter++;
+      graBits = MQB_PADDLE_NONE; // PQ only knows a single up or down, so both together sends nothing
     }
 
-    // --- MQB wheel-paddle frame (emulated, 100 ms): static carrier from a
-    // customer's MQB capture, last byte is the paddle state. No counter/CRC.
-    // See MQB_PADDLE_ID comment. ---
-    if (sendMQB && tick100)
+    if (sendPQ && (tick % 2) == 0)
     {
-      twai_message_t mqbPaddle{};
-      mqbPaddle.identifier = MQB_PADDLE_ID;
-      mqbPaddle.data_length_code = 8;
-      mqbPaddle.data[0] = 0x08;
-      mqbPaddle.data[1] = 0x04;
-      mqbPaddle.data[2] = 0x20;
-      mqbPaddle.data[3] = 0x00;
-      mqbPaddle.data[4] = 0xFE;
-      mqbPaddle.data[5] = 0x00;
-      mqbPaddle.data[6] = 0x0A;
-      mqbPaddle.data[7] = mqbCmd;
-
-      if (twai_transmit(&mqbPaddle, pdMS_TO_TICKS(100)) != ESP_OK)
-      { // failed, ignore
-      }
+      sendGraPaddleFrame(graBits);
     }
 
-    // --- Selector paddle frame 0x0AF: real ID/encoding verified directly at
-    // the selector module (see SHIFTER_PADDLE_ID comment). ---
-    const uint8_t shifterState = (shifterCmd == MQB_PADDLE_UP)     ? SHIFTER_PADDLE_STATE_UP
-                                 : (shifterCmd == MQB_PADDLE_DOWN) ? SHIFTER_PADDLE_STATE_DOWN
-                                                                   : SHIFTER_PADDLE_STATE_IDLE;
-
-    // Publish the held state for the shadow path in onBodyRX(); 0 keeps it quiet.
-    shifterTxState = (!sendShifter || shifterState == SHIFTER_PADDLE_STATE_IDLE) ? 0 : shifterState;
-
-    if (!sendShifter)
+    // --- 5. What the web page shows as "Sending" ---
+    if (sendMQB)
     {
-      vTaskDelay(pdMS_TO_TICKS(broadcastGRARefresh));
-      continue;
+      paddleCmdSent = mqbBits;
     }
-
-    // Shadow mode: the factory selector is on the bus, so it owns 0x0AF.
-    // onBodyRX() re-sends its frames with our state during a press; sending
-    // our own free-running frame here would only collide with it.
-    const uint32_t realSeenMs = shifterRealSeenMs;
-    if (realSeenMs != 0 && (millis() - realSeenMs) < SHIFTER_PADDLE_REAL_TIMEOUT_MS)
+    else if (sendPQ)
     {
-      vTaskDelay(pdMS_TO_TICKS(broadcastGRARefresh));
-      continue;
+      paddleCmdSent = graBits;
     }
-
-    // Standalone mode (no selector on the bus): send 0x0AF every 10 ms and
-    // answer the gearbox's latest 0x128 query ourselves, exactly as the
-    // factory selector does; with no recent query D3/D4 stay 00 00.
-    uint8_t answerD3 = 0x00, answerD4 = 0x00;
-    const uint32_t queryMs = shifterQueryMs;
-    if (queryMs != 0 && (millis() - queryMs) < SHIFTER_PADDLE_QUERY_TIMEOUT_MS)
+    else
     {
-      const uint32_t q = shifterQueryRaw;
-      const uint8_t qD1 = (q >> 16) & 0xFF, qD2 = (q >> 8) & 0xFF, qD3 = q & 0xFF;
-      if ((qD1 & 0x0F) == 0x5)
-      {
-        static const char ident[] = SHIFTER_PADDLE_IDENT;
-        answerD4 = 0x01;
-        if (qD2 != 0xFF)
-        {
-          answerD3 = (qD3 == 0xFF) ? (uint8_t)~qD2 : qD2; // complement / echo
-        }
-        else if (qD3 < sizeof(ident) - 1)
-        {
-          answerD3 = (uint8_t)ident[qD3]; // part number byte n
-        }
-        else
-        {
-          answerD3 = 0x00; // n >= 16 (up to 0x13) answers 0x00 on the real module
-        }
-      }
+      paddleCmdSent = MQB_PADDLE_NONE;
     }
 
-    twai_message_t shifterPaddle{};
-    shifterPaddle.identifier = SHIFTER_PADDLE_ID;
-    shifterPaddle.data_length_code = 4;
-    shifterPaddle.data[1] = (shifterState << 4) | (shifterPaddleCounter & 0x0F);
-    shifterPaddle.data[0] = (~shifterPaddle.data[1] & 0xF0) | 0x02;
-    shifterPaddle.data[2] = answerD3;
-    shifterPaddle.data[3] = answerD4;
-
-    if (twai_transmit(&shifterPaddle, pdMS_TO_TICKS(100)) != ESP_OK)
-    { // failed, ignore
+    tick++;
+    if (tick >= (MQB_PADDLE_REFRESH_MS / broadcastPaddlesRefresh)) // 100 / 10 = every 10th loop
+    {
+      tick = 0; // back to the 100 ms slot
     }
 
-    shifterPaddleCounter++;
-
-    vTaskDelay(pdMS_TO_TICKS(broadcastGRARefresh));
+    vTaskDelay(pdMS_TO_TICKS(broadcastPaddlesRefresh));
   }
 }
 
