@@ -11,9 +11,12 @@
 //   - Service: KWP2000 0x21 ReadDataByLocalIdentifier, group 0x01
 //   - Speed: raw16 (formula 0x25) / 3 = km/h
 //
-// UDS (ISO 14229 / ISO-TP)
+// UDS (ISO 14229 / ISO-TP) — MQB DSG theoretical speed
+//   - MQB DSG (DQ250-MQB / DQ381) speaks UDS, not TP2.0/KWP: physical IDs
+//     0x7E1 (req) / 0x7E9 (resp), service 0x22 DID 0x100A "Vehicle speed from
+//     transmission", 16-bit LE signed, km/h = raw/10 (V4.03, from the DSG
+//     firmware RE - Documents/dsg_re/). IDs/DID/scaling in can2cluster_uds.h.
 //   - Extended session + TesterPresent heartbeat + RDBI polling
-//   - Configurable TX/RX CAN IDs and DID via can2cluster_uds.h defines
 // =============================================================================
 
 #include "can2cluster_uds.h"
@@ -338,13 +341,16 @@ void taskUDS(void *arg)
                 uint16_t respDID = ((uint16_t)rsp.data[2] << 8) | rsp.data[3];
                 if (respDID != UDS_SPEED_DID) continue;
 
-                // data[4..] = speed payload.
-                // Default: 16-bit big-endian, unit = 0.01 km/h (adjust per ECU).
+                // data[4..5] = speed payload for DID 0x100A ("Vehicle speed from
+                // transmission"): 16-bit LITTLE-endian (data[4] = low byte),
+                // signed, km/h = raw/10. Negative = rolling backwards; show 0 on
+                // the speedo. (See can2cluster_uds.h - confirm raw/10 on the car.)
                 if (pciLen >= 5u) {
-                    uint32_t rawSpeed = ((uint16_t)rsp.data[4] << 8) | rsp.data[5];
-                    udsSpeed = (uint16_t)(rawSpeed / 100u);
+                    int16_t rawSpeed = (int16_t)(((uint16_t)rsp.data[5] << 8) | rsp.data[4]);
+                    int16_t kmh = rawSpeed / 10;         // 0.1 km/h per LSB
+                    udsSpeed = (kmh > 0) ? (uint16_t)kmh : 0;
                 } else {
-                    // Single-byte km/h (OBD2-style)
+                    // Single-byte km/h (OBD2-style) fallback
                     udsSpeed = rsp.data[4];
                 }
 

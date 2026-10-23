@@ -1,6 +1,8 @@
   #include "can2cluster_can.h"
 #include "can2cluster_uds.h"
 #include "can2cluster_savvycan.h"
+#include "can2cluster_cruise.h"
+#include "can2cluster_gateway.h"
 
 void canInit()
 {
@@ -457,10 +459,17 @@ void onBodyRX(const twai_message_t &frame)
     // The same for PQ: a 0x38A we didn't send means a real gateway is already
     // passing the steering column's cruise/paddle frame onto this bus.
     // broadcastPaddles() then stays quiet on 0x38A - two senders would make the
-    // counter jump about and the paddle bits flicker.
+    // counter jump about and the paddle bits flicker. (Cruise stalk mode too.)
     graPaddleOtherSenderMs = millis();
     break;
   }
+
+  case BSG_LAST_ID:    // 0x570 from another module
+  case GATE_KOMF_1_ID: // 0x390 from another module
+  case DIAGNOSE_1_ID:  // 0x7D0 from another module
+  case KOMBI_3_ID:     // 0x520 from the cluster (mileage)
+    onGatewayFrameRX(frame); // PQ gateway frames: see can2cluster_gateway.cpp
+    break;
 
   default:
     // do nothing...
@@ -508,19 +517,22 @@ void sendMqbPaddleFrame(uint8_t paddleBits)
   }
 }
 
-// Send one PQ GRA_Neu (0x38A) frame. Byte 3 carries the paddles. Byte map from
-// the VW PQ35/46 K-matrix, see the GRA notes in _defs.h.
-void sendGraPaddleFrame(uint8_t paddleBits)
+// Send one PQ GRA_Neu (0x38A) frame. Byte 1 carries the cruise buttons, byte 2
+// SET / RESUME, byte 3 the paddles. Byte map from the VW PQ35/46 K-matrix, see
+// the GRA notes in _defs.h. Paddle mode sends 0, 0, paddles; cruise stalk mode
+// sends the stalk and 0 for the paddles.
+void sendGraFrame(uint8_t cruiseButtons, uint8_t setResumeBits, uint8_t paddleBits)
 {
   twai_message_t graFrame{}; // {} = start with every part of the frame at zero
   graFrame.identifier = GRA_ID;
   graFrame.data_length_code = 4;
-  graFrame.data[1] = 0x00; // cruise buttons: none pressed
+  graFrame.data[1] = cruiseButtons; // bit 0 main switch, bit 1 cancel (GRA_MAIN_SWITCH / GRA_CANCEL)
 
-  // Byte 2: counter in the top half, sender code in bits 2-3, cruise SET (bit 0) and RESUME (bit 1) left at 0
-  uint8_t counterBits = GRA_counter << 4; // counter 0-15 into bits 4-7
-  uint8_t senderBits = GRA_SENDER << 2;   // sender code into bits 2-3
-  graFrame.data[2] = counterBits | senderBits;
+  // Byte 2: counter in the top half, sender code in bits 2-3, cruise SET (bit 0) and RESUME (bit 1)
+  uint8_t counterBits = GRA_counter << 4;           // counter 0-15 into bits 4-7
+  uint8_t senderBits = GRA_SENDER << 2;             // sender code into bits 2-3
+  uint8_t buttonBits = setResumeBits & 0x03;        // SET / RESUME into bits 0-1 (& 0x03 = keep only those two bits)
+  graFrame.data[2] = counterBits | senderBits | buttonBits;
 
   graFrame.data[3] = paddleBits; // bit 0 = tip down, bit 1 = tip up
 
@@ -541,7 +553,9 @@ void sendGraPaddleFrame(uint8_t paddleBits)
 }
 
 // Paddle task. Every 10 ms it reads the paddle switches and sends them to the
-// gearbox in the frame(s) picked on the web page (paddleOutput):
+// gearbox in the frame(s) picked on the web page (paddleOutput). In cruise stalk
+// mode (V4.02) the same inputs are the MK4 cruise stalk, sent to the ECU on 0x38A.
+// Paddle frames:
 //   MQB Gateway_74 0x3DD - every 100 ms, plus straight away when a paddle changes
 //   PQ  GRA_Neu    0x38A - every 20 ms
 // A pull is sent for as long as the paddle is held (like the factory parts),
@@ -553,8 +567,9 @@ void broadcastPaddles(void *args)
   uint8_t lastMqbBits = MQB_PADDLE_NONE; // paddle bits in the last loop, to spot a change
   bool wasUpHeld = false;                // paddle + on the last loop
   bool wasDownHeld = false;              // paddle - on the last loop
-  uint32_t upPulledMs = 0;               // millis() when paddle + was last pulled (0 = not yet)
-  uint32_t downPulledMs = 0;             // millis() when paddle - was last pulled (0 = not yet)
+  uint32_t upPulseUntil = 0;             // tip + bit stays set until this millis() (one clean pulse per pull)
+  uint32_t downPulseUntil = 0;           // tip - bit stays set until this millis()
+  uint32_t shiftLockoutUntil = 0;        // no new tip edge is accepted until this millis() (min gap between shifts)
   uint8_t testUpLoopsLeft = 0;           // 10 ms loops left of a web page "Test Paddle +" pull
   uint8_t testDownLoopsLeft = 0;         // 10 ms loops left of a web page "Test Paddle -" pull
 
@@ -569,6 +584,45 @@ void broadcastPaddles(void *args)
     uint32_t now = millis();
     bool isUpHeld = isPaddleUpHeld;
     bool isDownHeld = isPaddleDownHeld;
+
+    // --- Cruise stalk mode: pin 10 = main switch, pin 11 = SET, pin 12 = RESUME ---
+    if (useCruiseStalk)
+    {
+      updateCruiseStalk(isUpHeld, isDownHeld, now); // works out cruiseButtonsByte / cruiseSetResumeBits
+
+      // Nothing from the paddle side in this mode: forget any paddle state, so
+      // switching back to paddles can't send an old pull
+      paddleTestCmd = MQB_PADDLE_NONE; // the Test Paddle buttons do nothing here
+      testUpLoopsLeft = 0;
+      testDownLoopsLeft = 0;
+      wasUpHeld = false;
+      wasDownHeld = false;
+      upPulseUntil = 0;
+      downPulseUntil = 0;
+      shiftLockoutUntil = 0;
+      lastMqbBits = MQB_PADDLE_NONE;
+      paddleCmdSent = MQB_PADDLE_NONE; // no paddle bits going out
+
+      // GRA_Neu every 20 ms (every 2nd loop), unless another module is already sending 0x38A
+      bool isGraOtherSender = false;
+      uint32_t graOtherSenderMs = graPaddleOtherSenderMs;
+      if (graOtherSenderMs != 0 && (now - graOtherSenderMs) < GRA_OTHER_SENDER_MS)
+      {
+        isGraOtherSender = true;
+      }
+      if (!isGraOtherSender && (tick % 2) == 0)
+      {
+        sendGraFrame(cruiseButtonsByte, cruiseSetResumeBits, MQB_PADDLE_NONE); // paddle bits always 0: the stalk can never shift the gearbox
+      }
+
+      tick++;
+      if (tick >= (MQB_PADDLE_REFRESH_MS / broadcastPaddlesRefresh))
+      {
+        tick = 0;
+      }
+      vTaskDelay(pdMS_TO_TICKS(broadcastPaddlesRefresh));
+      continue; // back to the top of the loop - the paddle part below is skipped
+    }
 
     // The web page "Test Paddle" buttons: take the request, then count it down
     // here as a pull PADDLE_TEST_HOLD_MS long
@@ -593,23 +647,41 @@ void broadcastPaddles(void *args)
       testDownLoopsLeft--;
     }
 
-    // Note the moment each paddle is pulled (for the minimum lengths below)
-    if (isUpHeld && !wasUpHeld)
+    // --- One clean tip edge per pull (V4.03) ---
+    // The gearbox takes a tip on the rising edge and shifts one gear; it won't
+    // shift again until the request has gone back to "not pressed" and a little
+    // time has passed (firmware RE + OEM log: ~302 ms between shifts). So we
+    // start a shift ONLY on the paddle's rising edge, and only when no pulse is
+    // already running and the lockout has passed. We then hold the bit for one
+    // short pulse and force it back to 0. Holding the paddle down gives exactly
+    // one shift (no auto-repeat), and a release bounce or a quick re-tap can't
+    // sneak a second edge in. See Documents/dsg_re/DSG_RE_SUMMARY.md.
+    bool upEdge = (isUpHeld && !wasUpHeld);     // paddle + just went from let-go to pulled
+    bool downEdge = (isDownHeld && !wasDownHeld);
+    bool canStartShift = (now >= shiftLockoutUntil) && (now >= upPulseUntil) && (now >= downPulseUntil);
+
+    if (upEdge && canStartShift)
     {
-      upPulledMs = now;
+      upPulseUntil = now + MQB_PADDLE_MIN_HOLD_MS;       // send tip + for one pulse
+      shiftLockoutUntil = now + PADDLE_SHIFT_LOCKOUT_MS; // then lock the next shift out briefly
 #if serialDebugPaddles
-      DEBUG_PADDLES("Paddle + pulled");
+      DEBUG_PADDLES("Paddle + edge: one tip sent");
 #endif
     }
-    if (isDownHeld && !wasDownHeld)
+    if (downEdge && canStartShift)
     {
-      downPulledMs = now;
+      downPulseUntil = now + MQB_PADDLE_MIN_HOLD_MS;      // send tip - for one pulse
+      shiftLockoutUntil = now + PADDLE_SHIFT_LOCKOUT_MS;
 #if serialDebugPaddles
-      DEBUG_PADDLES("Paddle - pulled");
+      DEBUG_PADDLES("Paddle - edge: one tip sent");
 #endif
     }
     wasUpHeld = isUpHeld;
     wasDownHeld = isDownHeld;
+
+    // The tip bits for this 10 ms loop: on while the pulse is running, else 0.
+    bool upTip = (now < upPulseUntil);
+    bool downTip = (now < downPulseUntil);
 
     // --- 2. Which frames go out (web page setting) ---
     bool sendMQB = false;
@@ -638,15 +710,13 @@ void broadcastPaddles(void *args)
       sendPQ = false;
     }
 
-    // --- 3. MQB Gateway_74 (0x3DD) ---
-    // A paddle counts as pulled while it's held, and for at least
-    // MQB_PADDLE_MIN_HOLD_MS after it was pulled (always 2+ frames).
+    // --- 3. MQB Gateway_74 (0x3DD): byte 7 carries the tip for the pulse ---
     uint8_t mqbBits = MQB_PADDLE_NONE;
-    if (isUpHeld || (upPulledMs != 0 && (now - upPulledMs) < MQB_PADDLE_MIN_HOLD_MS))
+    if (upTip)
     {
       mqbBits = mqbBits | MQB_PADDLE_UP; // byte 7 bit 1: MFL_Tip_Up
     }
-    if (isDownHeld || (downPulledMs != 0 && (now - downPulledMs) < MQB_PADDLE_MIN_HOLD_MS))
+    if (downTip)
     {
       mqbBits = mqbBits | MQB_PADDLE_DOWN; // byte 7 bit 0: MFL_Tip_Down
     }
@@ -674,13 +744,13 @@ void broadcastPaddles(void *args)
 #endif
     lastMqbBits = mqbBits; // remembered even when 0x3DD is off, so switching it on doesn't send a stale change
 
-    // --- 4. PQ GRA_Neu (0x38A), every 20 ms ---
+    // --- 4. PQ GRA_Neu (0x38A), every 20 ms: byte 3 carries the same tip pulse ---
     uint8_t graBits = MQB_PADDLE_NONE; // same bit values as MQB: bit 0 down, bit 1 up
-    if (isUpHeld || (upPulledMs != 0 && (now - upPulledMs) < GRA_PULSE_MIN_MS))
+    if (upTip)
     {
       graBits = graBits | MQB_PADDLE_UP;
     }
-    if (isDownHeld || (downPulledMs != 0 && (now - downPulledMs) < GRA_PULSE_MIN_MS))
+    if (downTip)
     {
       graBits = graBits | MQB_PADDLE_DOWN;
     }
@@ -691,7 +761,7 @@ void broadcastPaddles(void *args)
 
     if (sendPQ && (tick % 2) == 0)
     {
-      sendGraPaddleFrame(graBits);
+      sendGraFrame(0x00, 0x00, graBits); // no cruise buttons, paddles in byte 3
     }
 
     // --- 5. What the web page shows as "Sending" ---

@@ -98,7 +98,7 @@ function initControls() {
   const otaFsUploadBtn = document.getElementById('otaFsUploadBtn');
 
   // Configuration controls
-  const configInputs = ['hasNeedleSweep', 'sweepSpeed', 'stepRPM', 'stepSpeed', 'shiftLimit', 'shiftFlashes', 'coilType', 'useMPH'];
+  const configInputs = ['hasNeedleSweep', 'sweepSpeed', 'stepRPM', 'stepSpeed', 'maxSpeed', 'shiftLimit', 'shiftFlashes', 'coilType', 'useMPH', 'gatewayFrames'];
   configInputs.forEach(id => {
     const el = document.getElementById(id);
     if (el) {
@@ -175,6 +175,25 @@ function initControls() {
       }
     }
   });
+
+  // Input Mode (pins 10/11/12): paddles or MK4 cruise stalk. Ask first - in
+  // paddle mode a cruise stalk still wired to pins 10/11 would shift the gearbox.
+  const inputModeEl = document.getElementById('inputMode');
+  if (inputModeEl) {
+    inputModeEl.addEventListener('change', () => {
+      const value = inputModeEl.value;
+      let msg = 'Switch pins 10/11/12 to the MK4 cruise stalk?\n\nPaddle shifting through Can2Cluster stops, hall speed stops, and the stalk is sent to the ECU on 0x38A.';
+      if (value === 'Paddles') {
+        msg = 'Switch pins 10/11/12 to DSG paddles?\n\nOnly do this if the cruise stalk is NOT wired to them - in paddle mode, grounding pin 10 or 11 shifts the gearbox.';
+      }
+      if (!confirm(msg)) {
+        inputModeEl.value = inputModeEl.dataset.last || 'Paddles'; // put the old choice back
+        return;
+      }
+      inputModeEl.dataset.last = value;
+      pushControl('inputMode', value);
+    });
+  }
 
   // Speed source dropdown
   const speedSourceEl = document.getElementById('speedSource');
@@ -322,10 +341,16 @@ async function fetchSettings() {
     document.getElementById('hasNeedleSweep').checked = data.hasNeedleSweep || false;
     document.getElementById('sweepSpeed').value = data.sweepSpeed || 0;
     setText('sweepSpeed-display', data.sweepSpeed || 0);
-    document.getElementById('stepRPM').value = data.stepRPM || 100;
-    setText('stepRPM-display', data.stepRPM || 100);
-    document.getElementById('stepSpeed').value = data.stepSpeed || 100;
-    setText('stepSpeed-display', data.stepSpeed || 100);
+    document.getElementById('stepRPM').value = data.stepRPM || 12;
+    setText('stepRPM-display', data.stepRPM || 12);
+    document.getElementById('stepSpeed').value = data.stepSpeed || 10;
+    setText('stepSpeed-display', data.stepSpeed || 10);
+    const dialTop = data.maxSpeed || 200;
+    document.getElementById('maxSpeed').value = dialTop;
+    setText('maxSpeed-display', dialTop);
+    // the Speed Output Test slider (Diagnostics) goes up to the dial top too
+    const tempSpeedEl = document.getElementById('tempSpeed');
+    if (tempSpeedEl) tempSpeedEl.max = dialTop;
     document.getElementById('shiftLight').value = data.shiftLight || 'None';
     document.getElementById('shiftLimit').value = data.shiftLimit || 0;
     document.getElementById('shiftFlashes').value = data.shiftFlashes || 0;
@@ -336,6 +361,13 @@ async function fetchSettings() {
     document.getElementById('dsgParkMode').value = data.dsgParkMode || 'None';
     const paddleOutputEl = document.getElementById('paddleOutput');
     if (paddleOutputEl) paddleOutputEl.value = data.paddleOutput || 'Off';
+    const inputModeEl = document.getElementById('inputMode');
+    if (inputModeEl) {
+      inputModeEl.value = data.inputMode || 'Paddles';
+      inputModeEl.dataset.last = inputModeEl.value; // what to put back if a change is cancelled
+    }
+    const gatewayFramesEl = document.getElementById('gatewayFrames');
+    if (gatewayFramesEl) gatewayFramesEl.checked = data.gatewayFrames || false;
 
     // Coolant gauge output
     const coolantOutputEl = document.getElementById('coolantOutput');
@@ -595,9 +627,56 @@ async function fetchStatus() {
     setOutputPill('reverseStatus', !!data.vehicleReverse || testReverseActive, testReverseActive);
     setValuePill('parkStatus', data.vehiclePark ? 'ok' : '', data.vehiclePark ? 'Active' : 'Inactive');
 
-    // Paddle feedback
-    setValuePill('paddleUpStatus', data.paddleUp ? 'ok' : '', data.paddleUp ? 'Active' : 'Inactive');
-    setValuePill('paddleDownStatus', data.paddleDown ? 'ok' : '', data.paddleDown ? 'Active' : 'Inactive');
+    // Paddle feedback - in cruise stalk mode the same inputs are the cruise stalk
+    const isCruiseMode = !!data.cruiseMode;
+    if (isCruiseMode) {
+      setText('paddleUpLabel', 'Cruise Main');
+      setText('paddleDownLabel', 'Cruise SET');
+      setValuePill('paddleUpStatus', data.cruiseMain ? 'ok' : '', data.cruiseMain ? 'On' : 'Off');
+      setValuePill('paddleDownStatus', data.cruiseSet ? 'ok' : '', data.cruiseSet ? 'Pressed' : 'Released');
+      setValuePill('cruiseResumeStatus', data.cruiseResume ? 'ok' : '', data.cruiseResume ? 'Pressed' : 'Released');
+    } else {
+      setText('paddleUpLabel', 'Paddle Up');
+      setText('paddleDownLabel', 'Paddle Down');
+      setValuePill('paddleUpStatus', data.paddleUp ? 'ok' : '', data.paddleUp ? 'Active' : 'Inactive');
+      setValuePill('paddleDownStatus', data.paddleDown ? 'ok' : '', data.paddleDown ? 'Active' : 'Inactive');
+    }
+    showElement('cruiseResumeItem', isCruiseMode);
+    showElement('cruiseGrid', isCruiseMode);
+    showElement('cruiseHint', isCruiseMode);
+    showElement('paddleStalkNote', isCruiseMode);
+    ['paddleOutput', 'paddleTestUp', 'paddleTestDown'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.disabled = isCruiseMode;
+    });
+
+    // MK4 cruise stalk live readout (Input Mode card)
+    if (isCruiseMode) {
+      setValuePill('cruiseMain', data.cruiseMain ? 'ok' : '', data.cruiseMain ? 'On' : 'Off');
+      setValuePill('cruiseSet', data.cruiseSet ? 'ok' : '', data.cruiseSet ? 'Pressed' : 'Released');
+      setValuePill('cruiseResume', data.cruiseResume ? 'ok' : '', data.cruiseResume ? 'Pressed' : 'Released');
+      if (data.paddlePqGatewayPresent) {
+        setValuePill('cruiseSending', 'warn', 'Another module sends 0x38A');
+      } else {
+        const buttons = data.cruiseButtons || 0;      // GRA byte 1: bit 0 main, bit 1 cancel
+        const setResume = data.cruiseSetResume || 0;  // GRA byte 2: bit 0 SET, bit 1 RESUME
+        const parts = [];
+        if (buttons & 0x01) parts.push('Main on');
+        if (buttons & 0x02) parts.push('Cancel');
+        if (setResume & 0x01) parts.push('SET');
+        if (setResume & 0x02) parts.push('RESUME');
+        setValuePill('cruiseSending', (buttons & 0x01) ? 'ok' : '', parts.length ? parts.join(' + ') : 'Main off');
+      }
+    }
+
+    // PQ gateway frames live readout: 0 off, 1 sending, 2 another module sends it
+    const gwNames = { 0: 'Off', 1: 'Sending', 2: 'Other module sends' };
+    const gwStates = { 0: '', 1: 'ok', 2: 'warn' };
+    [['gwBsgLast', data.gwBsgLast], ['gwGateKomf1', data.gwGateKomf1], ['gwDiagnose1', data.gwDiagnose1]].forEach(([id, state]) => {
+      setValuePill(id, gwStates[state] || '', gwNames[state] || '--');
+    });
+    if (data.clusterKmValid) setValuePill('gwKm', 'ok', Number(data.clusterKm).toLocaleString() + ' km');
+    else setValuePill('gwKm', data.gatewayFrames ? 'warn' : '', 'Not seen (0 sent)');
 
     // DSG paddle live readout (DSG Paddle Output card). 255 = that frame hasn't been seen.
     if (document.getElementById('paddleSending')) {
@@ -607,7 +686,9 @@ async function fetchStatus() {
       const ownedIds = [];
       if (data.paddleGatewayPresent && paddleMode !== 'PQ') ownedIds.push('0x3DD');
       if (data.paddlePqGatewayPresent && paddleMode !== 'MQB') ownedIds.push('0x38A');
-      if (ownedIds.length) {
+      if (isCruiseMode) {
+        setValuePill('paddleSending', '', 'Not used (cruise stalk)');
+      } else if (ownedIds.length) {
         setValuePill('paddleSending', 'warn', 'Gateway owns ' + ownedIds.join(' + '));
       } else if (paddleMode === 'Off') {
         setValuePill('paddleSending', '', 'Off');
@@ -676,6 +757,8 @@ function applySpeedUnitLabels(useMPH) {
   if (speedUnitEl) speedUnitEl.textContent = label;
   const tempSpeedUnitEl = document.getElementById('tempSpeed-unit');
   if (tempSpeedUnitEl) tempSpeedUnitEl.textContent = label;
+  const maxSpeedUnitEl = document.getElementById('maxSpeed-unit');
+  if (maxSpeedUnitEl) maxSpeedUnitEl.textContent = label;
 }
 
 function pushControl(key, value) {
@@ -1103,6 +1186,12 @@ function showNotification(message, type = "success") {
 function setText(id, val) {
   const el = document.getElementById(id);
   if (el) el.textContent = val;
+}
+
+// Show or hide one element by id (inline style, like applyBoard below)
+function showElement(id, show) {
+  const el = document.getElementById(id);
+  if (el) el.style.display = show ? '' : 'none';
 }
 
 // One web page serves both boards. Anything marked data-board="esp32" (DevKit)

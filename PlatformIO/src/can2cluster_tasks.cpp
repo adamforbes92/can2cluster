@@ -1,6 +1,7 @@
 #include "can2cluster_io.h"
 #include "can2cluster_uds.h"
 #include "can2cluster_i2c.h"
+#include "can2cluster_gateway.h"
 
 void setupTasks()
 {
@@ -12,7 +13,8 @@ void setupTasks()
   xTaskCreatePinnedToCore(taskTP20,       "taskTP20",       4096, NULL,  3, NULL,    1);
   xTaskCreatePinnedToCore(taskUDS,        "taskUDS",        4096, NULL,  3, NULL,    1);
   xTaskCreatePinnedToCore(parseDSG,       "parseDSG",       6000, NULL,  4, NULL,    1);
-  xTaskCreatePinnedToCore(broadcastPaddles, "broadcastPaddles", 4000, NULL, 5, NULL,  1); // reads the paddles and sends 0x3DD / 0x38A
+  xTaskCreatePinnedToCore(gatewayFramesTask, "gatewayFrames", 3000, NULL, 5, NULL,    1); // PQ gateway frames 0x570 / 0x390 / 0x7D0 (when switched on)
+  xTaskCreatePinnedToCore(broadcastPaddles, "broadcastPaddles", 4000, NULL, 5, NULL,  1); // reads the paddles (or the cruise stalk) and sends 0x3DD / 0x38A
   xTaskCreatePinnedToCore(broadcastSpeed, "broadcastSpeed", 4000, NULL,  6, NULL,    1);
   xTaskCreatePinnedToCore(parseGPS,       "parseGPS",       6000, NULL,  7, &gpsTaskHandle, 1);
   xTaskCreatePinnedToCore(updateSpeed,    "updateSpeed",    4096, NULL,  9, &updateSpeedHandle, 1);
@@ -116,8 +118,8 @@ void updateSpeed(void *args)
     stackupdateSpeed = uxTaskGetStackHighWaterMark(NULL); // for capturing how much memory the task is using
 #endif
 
-    if (!tempNeedleSweep && !diagTest)
-    { // only here if tested in WiFi
+    if (!isNeedleSweeping && !diagTest)
+    { // the needle sweep and the diagnostic mode drive the outputs themselves
 
       // Windowed frequency: read-and-clear the accumulators once per loop so the
       // reading is a true average over the window instead of one jittery edge-to-edge
@@ -125,8 +127,9 @@ void updateSpeed(void *args)
       float hallHz = readHallHz();
       float vrHz = readVRHz();
 
-      // Reset Hall speed if no pulse has arrived within durationReset ms
-      if ((millis() + 10 - lastPulse) > durationReset)
+      // Reset Hall speed if no pulse has arrived within durationReset ms.
+      // In cruise stalk mode pin 12 is the RESUME button, not a speed sensor, so hall speed stays 0.
+      if (useCruiseStalk || (millis() + 10 - lastPulse) > durationReset)
       {
         dutyCycleIncoming = 0;
         hallSpeed = 0;
@@ -136,7 +139,7 @@ void updateSpeed(void *args)
       {
         if (hallHz >= 0.0f)
           dutyCycleIncoming = (unsigned long)(hallHz + 0.5f);
-        hallSpeed = map(dutyCycleIncoming, 0, maxFreqHall, 0, maxSpeed);
+        hallSpeed = map(dutyCycleIncoming, 0, maxFreqHall, 0, SENSOR_TOP_SPEED); // maxFreqHall Hz = 200 km/h
       }
 
       // Reset VR speed if no pulse has arrived within durationReset ms
@@ -150,7 +153,7 @@ void updateSpeed(void *args)
       {
         if (vrHz >= 0.0f)
           dutyCycleIncomingVR = (unsigned long)(vrHz + 0.5f);
-        vrSpeed = map(dutyCycleIncomingVR, 0, maxFreqVR, 0, maxSpeed);
+        vrSpeed = map(dutyCycleIncomingVR, 0, maxFreqVR, 0, SENSOR_TOP_SPEED); // maxFreqVR Hz = 200 km/h
       }
 
       if (testSpeedo)
@@ -218,8 +221,8 @@ void updateRPM(void *args)
 #if detailedDebugStack
     stackupdateRPM = uxTaskGetStackHighWaterMark(NULL); // for capturing how much memory the task is using
 #endif
-    if (!tempNeedleSweep && !diagTest)
-    { // only here if tested in WiFi
+    if (!isNeedleSweeping && !diagTest)
+    { // the needle sweep and the diagnostic mode drive the outputs themselves
       // Windowed frequency: read-and-clear the RPM accumulator once per loop so the
       // reading is a true average over the window rather than one jittery period.
       // Drained every loop (even on CAN RPM) so the window can't grow unbounded.

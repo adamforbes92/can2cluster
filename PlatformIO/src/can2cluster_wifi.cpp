@@ -2,6 +2,7 @@
 #include "can2cluster_savvycan.h"
 #include "can2cluster_gps.h"
 #include "can2cluster_i2c.h"
+#include "can2cluster_gateway.h"
 #include "power_manager.h"
 #include "wifi_manager.h"
 #include "ota_manager.h"
@@ -362,12 +363,19 @@ void setupWebRoutes()
     doc["shiftFlashes"] = shiftFlashes;
     doc["coilType"] = coilType;
     doc["useCoil"] = coilType;
+    doc["maxSpeed"] = maxSpeed;     // "Speedo Dial Top" - where the needle sweep goes to
     doc["useMPH"] = useMPH;
     doc["diagTest"] = diagTest;
     doc["analyzerMode"] = analyzerMode;
     doc["analyzerSerial"] = analyzerSerial;
     doc["dsgParkMode"] = dsgParkMode;
     doc["paddleOutput"] = paddleOutput;
+    if (useCruiseStalk) {
+      doc["inputMode"] = "Cruise";  // pins 10/11/12 = MK4 cruise stalk
+    } else {
+      doc["inputMode"] = "Paddles"; // pins 10/11/12 = paddles + hall speed
+    }
+    doc["gatewayFrames"] = useGatewayFrames;
 
     // Coolant gauge output
     doc["coolantOutput"] = coolantOutputName();
@@ -491,6 +499,22 @@ void setupWebRoutes()
     doc["mqbGearboxWarning"] = gearboxWarning;
     doc["dsgGear"] = gear;                         // gear from the gearbox (0x0AD on MQB)
 
+    // MK4 cruise stalk live readout (Input Mode card)
+    doc["cruiseMode"] = useCruiseStalk;
+    doc["cruiseMain"] = (bool)isCruiseMainOn;         // (bool) = plain copy of the volatile value
+    doc["cruiseSet"] = (bool)isCruiseSetPressed;
+    doc["cruiseResume"] = (bool)isCruiseResumePressed;
+    doc["cruiseButtons"] = (uint8_t)cruiseButtonsByte;     // GRA byte 1: bit 0 main, bit 1 cancel
+    doc["cruiseSetResume"] = (uint8_t)cruiseSetResumeBits; // GRA byte 2: bit 0 SET, bit 1 RESUME
+
+    // PQ gateway frames live readout: 0 off, 1 sending, 2 another module sends it
+    doc["gatewayFrames"] = useGatewayFrames;
+    doc["gwBsgLast"] = gatewayFrameState(bsgLastOtherSenderMs);
+    doc["gwGateKomf1"] = gatewayFrameState(gateKomf1OtherSenderMs);
+    doc["gwDiagnose1"] = gatewayFrameState(diagnose1OtherSenderMs);
+    doc["clusterKm"] = (uint32_t)clusterKm;
+    doc["clusterKmValid"] = isClusterKmFresh();
+
     doc["testRPM"] = testRPM;
     doc["tempRPM"] = tempRPM;
     doc["testSpeedo"] = testSpeedo;
@@ -498,7 +522,7 @@ void setupWebRoutes()
     doc["testReverse"] = testReverse;
     doc["testEML"] = testEML;
     doc["testEPC"] = testEPC;
-    doc["tempNeedleSweep"] = tempNeedleSweep;
+    doc["needleSweepRunning"] = (bool)isNeedleSweeping;
     doc["broadcastSpeedEnabled"] = broadcastSpeedEnabled;
     doc["broadcastSpeedValue"] = broadcastSpeedValue;
     doc["aftermarketSpeed"] = aftermarketSpeed;
@@ -626,6 +650,10 @@ void setupWebRoutes()
       stepSpeed = value.as<int>();
       settingApplied = true;
     }
+    if (key == "maxSpeed") {
+      maxSpeed = constrain(value.as<int>(), SPEEDO_DIAL_TOP_MIN, SPEEDO_DIAL_TOP_MAX); // speedo dial top
+      settingApplied = true;
+    }
     if (key == "coilType" || key == "useCoil") {
       coilType = value.as<bool>();
       settingApplied = true;
@@ -662,6 +690,21 @@ void setupWebRoutes()
         paddleOutput = mode;
         settingApplied = true;
       }
+    }
+    if (key == "inputMode") {
+      String mode = value.as<const char*>();
+      if (mode == "Cruise") {
+        useCruiseStalk = true;  // pins 10/11/12 = MK4 cruise stalk
+        settingApplied = true;
+      }
+      if (mode == "Paddles") {
+        useCruiseStalk = false; // pins 10/11/12 = paddles + hall speed
+        settingApplied = true;
+      }
+    }
+    if (key == "gatewayFrames") {
+      useGatewayFrames = value.as<bool>();
+      settingApplied = true;
     }
     
     if (key == "shiftLight") {

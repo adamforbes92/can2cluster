@@ -5,7 +5,7 @@ uint16_t clusterRPMLimit = 7000;
 uint16_t shiftLimit = 6000;
 uint8_t shiftFlashes = 3;
 uint8_t sweepSpeed = 18;
-uint16_t maxSpeed = 200;
+uint16_t maxSpeed = 200;         // speedo dial top (km/h or mph) - the needle sweep goes up to here
 uint16_t maxRPM = 230;
 uint16_t maxFreqHall = 200;
 uint16_t maxFreqVR = 200;
@@ -106,7 +106,8 @@ uint8_t gpsUpdateRateHz = 1;
 TaskHandle_t gpsTaskHandle = NULL;
 TaskHandle_t updateSpeedHandle = NULL;
 TaskHandle_t updateRPMHandle = NULL;
-bool tempNeedleSweep = false;
+bool tempNeedleSweep = false;          // web page asked for a test sweep
+volatile bool isNeedleSweeping = false; // no sweep running yet
 bool testSpeedo = false;
 bool testRPM = false;
 bool useAftermarket = false;
@@ -133,6 +134,22 @@ bool testEPC = false;
 bool testReverse = false;
 String dsgParkMode = "None";  // DSG Park behavior: "None", "EML", or "EPC"
 String paddleOutput = PADDLE_OUTPUT_DEFAULT; // which paddle frame(s) to send
+
+// MK4 cruise stalk. "volatile" = set by the paddle task and read by the web page.
+bool useCruiseStalk = false;                 // pins 10/11/12 are paddles + hall speed until switched on the web page
+volatile bool isCruiseMainOn = false;        // main switch off
+volatile bool isCruiseSetPressed = false;    // SET not pressed
+volatile bool isCruiseResumePressed = false; // RESUME not pressed
+volatile uint8_t cruiseButtonsByte = 0;      // main switch off, no cancel
+volatile uint8_t cruiseSetResumeBits = 0;    // no SET / RESUME
+
+// PQ gateway frames
+bool useGatewayFrames = false;                 // off until switched on on the web page
+volatile uint32_t bsgLastOtherSenderMs = 0;    // 0 = never seen another 0x570 sender
+volatile uint32_t gateKomf1OtherSenderMs = 0;  // 0 = never seen another 0x390 sender
+volatile uint32_t diagnose1OtherSenderMs = 0;  // 0 = never seen another 0x7D0 sender
+volatile uint32_t clusterKm = 0;               // no mileage from the cluster yet
+volatile uint32_t clusterKmSeenMs = 0;         // 0 = never seen 0x520
 
 // Coolant temperature gauge
 uint8_t coolantOutput = COOLANT_OFF; // where the gauge is driven from (see COOLANT_xx in _defs.h)

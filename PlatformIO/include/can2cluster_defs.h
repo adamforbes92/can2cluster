@@ -18,7 +18,8 @@
 // V4.00 - two boards from one codebase: ESP32 DevKit + ESP32-S3 board.
 //         S3 gets the dedicated coolant gauge output (MCP4725 current sink).
 // V4.01 - MQB paddles rebuilt from the Tplus/Tminus log review (see MQB_PADDLES.md).
-#define FW_VERSION "4.01"
+// V4.02 - MK4 cruise stalk + PQ gateway frames, faster needle sweep, settable speedo dial top.
+#define FW_VERSION "4.03"
 
 // ===== Board =====
 // Which PCB this firmware is built for. Do NOT change it here - pick the env in
@@ -95,7 +96,10 @@ extern uint16_t clusterRPMLimit; // rpm limit of the cluster face
 extern uint16_t shiftLimit;      // shift limit (for shift light)
 extern uint8_t shiftFlashes;     // number of flashes for shift light
 extern uint8_t sweepSpeed;       // for needle sweep rate of change (in ms)
-extern uint16_t maxSpeed;        // maximum cluster speed in kmh on the cluster
+extern uint16_t maxSpeed;        // top of the speedo dial (km/h, or mph on an MPH cluster) - where the needle sweep goes to. Set on the web page as "Speedo Dial Top"
+#define SENSOR_TOP_SPEED 200     // km/h that the Max Hall / VR Sensor Frequency sliders are set against (was maxSpeed up to V4.01, which was always 200)
+#define SPEEDO_DIAL_TOP_MIN 60   // lowest "Speedo Dial Top" the web page accepts
+#define SPEEDO_DIAL_TOP_MAX 400  // highest "Speedo Dial Top" the web page accepts
 extern uint16_t maxRPM;          // maximum rpm in hz for the cluster
 extern uint16_t maxFreqHall;     // max frequency for top speed using the 02J / 02M hall sensor
 extern uint16_t maxFreqVR;       // max frequency for top speed using a variable-reluctance (VR) sensor
@@ -131,9 +135,9 @@ extern uint16_t stepSpeed;
 #define hasOnboardLED 0      // no LED on the S3 board
 
 // setup - pins (inputs)
-#define pinPaddleUp 42       // ESP_UP_PAD: DSG paddle up, LOW = pressed (U10 buffer, module pin 35)
-#define pinPaddleDown 21     // ESP_DOWN_PAD: DSG paddle down, LOW = pressed (U10 buffer, module pin 23)
-#define pinHallSensor 16     // ESP_SPEED_IN: hall speed sensor (U9 buffer, module pin 9)
+#define pinPaddleUp 42       // ESP_UP_PAD: DSG paddle up, LOW = pressed (U10 buffer, module pin 35). Cruise main switch in cruise stalk mode
+#define pinPaddleDown 21     // ESP_DOWN_PAD: DSG paddle down, LOW = pressed (U10 buffer, module pin 23). Cruise SET in cruise stalk mode
+#define pinHallSensor 16     // ESP_SPEED_IN: hall speed sensor (U9 buffer, module pin 9). Cruise RESUME in cruise stalk mode
 #define pinVR 8              // VR_COUT: VR conditioner (MAX9924) output, 3V3 pull-up R6 (module pin 12)
 #define pinRpmPulse 15       // ESP_RPM_IN: engine RPM pulse (U9 buffer, module pin 8)
 #define pinBoardVersion 4    // BOARD_VER: analogue board-ID divider (R34 to ground) (module pin 4)
@@ -167,9 +171,9 @@ extern uint16_t stepSpeed;
 #define pinReverse 26 // pin output for reverse mosfet
 
 // setup - pins (inputs)
-#define pinPaddleUp 34   // pin input for DSG paddle up
-#define pinPaddleDown 35 // pin input for DSG paddle down
-#define pinHallSensor 25 // pin input for Hall Sensor
+#define pinPaddleUp 34   // pin input for DSG paddle up (connector pin 10). Cruise main switch in cruise stalk mode
+#define pinPaddleDown 35 // pin input for DSG paddle down (connector pin 11). Cruise SET in cruise stalk mode
+#define pinHallSensor 25 // pin input for Hall Sensor (connector pin 12). Cruise RESUME in cruise stalk mode
 #define pinVR 27         // pin input for variable-reluctance (VR) speed sensor (conditioner digital output, ext pull-up to 3.3V)
 #define pinRpmPulse 39   // pin input for engine RPM pulse
 #endif
@@ -384,7 +388,8 @@ extern uint8_t gpsUpdateRateHz; // persisted GPS update rate: 1/5/10/16 Hz
 extern TaskHandle_t gpsTaskHandle;
 extern TaskHandle_t updateSpeedHandle;
 extern TaskHandle_t updateRPMHandle;
-extern bool tempNeedleSweep;              // bool to set flag for temp needle sweep (for testing)
+extern bool tempNeedleSweep;              // web page "Test Needle Sweep" button pressed - loop() starts a sweep
+extern volatile bool isNeedleSweeping;    // true while the needle sweep is moving the needles (the speed / RPM tasks leave the outputs alone)
 extern bool testSpeedo;                   // for testing only, vary final pwmFrequency for speed
 extern bool testRPM;                      // for testing only, vary final pwmFrequency for RPM
 extern bool useAftermarket;               // speed input: custom CAN (aftermarket)
@@ -411,6 +416,22 @@ extern bool testEPC;                      // bool to force turn on EPC
 extern bool testReverse;                  // bool to force turn on Reverse
 extern String dsgParkMode;                // DSG Park behavior: "None", "EML", or "EPC"
 extern String paddleOutput;               // which paddle frame(s) to send: "Off", "MQB", "PQ", "All" (see PADDLE_OUTPUT_DEFAULT)
+
+// MK4 cruise stalk (see the "MK4 cruise stalk" section further down)
+extern bool useCruiseStalk;                    // true = pins 10/11/12 are the MK4 cruise stalk (main / SET / RESUME), not paddles + hall speed
+extern volatile bool isCruiseMainOn;           // stalk main switch is on (pin 10 grounded)
+extern volatile bool isCruiseSetPressed;       // SET button pressed (pin 11 grounded)
+extern volatile bool isCruiseResumePressed;    // RESUME pressed (pin 12 grounded, after the debounce)
+extern volatile uint8_t cruiseButtonsByte;     // GRA byte 1 to send: main switch / cancel bits (also shown on the web page)
+extern volatile uint8_t cruiseSetResumeBits;   // GRA byte 2 SET / RESUME bits to send (also shown on the web page)
+
+// PQ gateway frames (see the "PQ gateway frames" section further down)
+extern bool useGatewayFrames;                  // true = send 0x570 / 0x390 / 0x7D0 like a PQ gateway would
+extern volatile uint32_t bsgLastOtherSenderMs;   // millis() when another module last sent 0x570, 0 = never
+extern volatile uint32_t gateKomf1OtherSenderMs; // millis() when another module last sent 0x390, 0 = never
+extern volatile uint32_t diagnose1OtherSenderMs; // millis() when another module last sent 0x7D0, 0 = never
+extern volatile uint32_t clusterKm;              // mileage read from the cluster (Kombi_3 0x520), km
+extern volatile uint32_t clusterKmSeenMs;        // millis() when that mileage last arrived, 0 = never
 
 // Coolant temperature gauge
 // DevKit: PWM on a shared output (EML or EPC pin). S3: dedicated COOLANT_OUT current sink.
@@ -565,7 +586,7 @@ extern uint32_t stackcheckError;
 // The K-matrix sends it every 20-30 ms and calls it missing after 500 ms. We send every 20 ms.
 // (Up to V4.01 byte 2 was a 0-255 counter: the real counter only moved every
 // 16th frame, and cruise SET/RESUME read as pressed in about half the frames.)
-#define GRA_PULSE_MIN_MS 80              // shortest pull we send on the PQ GRA frame (4 frames)
+#define GRA_PULSE_MIN_MS 80              // (V4.03: no longer used - the PQ tip now uses the shared one-shot pulse, MQB_PADDLE_MIN_HOLD_MS)
 #define GRA_COUNTER_MAX 15               // byte 2 counter runs 0-15, then back to 0
 #define GRA_SENDER 0                     // ** CAN CHANGE THIS ** GRA_Sender code: 0 = body module, 1 = column stalk 6 buttons, 2 = MQB-style wheel (MFL Gen 2), 3 = column stalk 4 buttons
 #define GRA_OTHER_SENDER_MS 1000         // a 0x38A from another module in this long = a real gateway is sending it, so we stay quiet
@@ -574,12 +595,64 @@ extern uint32_t stackcheckError;
 #define PADDLE_DEBOUNCE_MS 20            // a paddle switch must read the same for this long to count
 #define PADDLE_TEST_HOLD_MS 200          // web page "Test Paddle" button = a pull this long
 
+// V4.03 tip model (from the DSG firmware RE - see Documents/dsg_re/DSG_RE_SUMMARY.md):
+// each pull sends ONE clean edge, not a held level. On the paddle's rising edge
+// we send the tip bit for one pulse (MQB_PADDLE_MIN_HOLD_MS long) on the chosen
+// frame(s), then force the bit back to 0. A new pull is only started by a fresh
+// rising edge, after the paddle has been let go AND this lockout has passed.
+// The gearbox accepts a tip exactly this way: edge-triggered, a one-shot latch
+// that only re-arms on release, and a tap landing in the shift-busy window is
+// dropped. The OEM gateway log (229 pulls) shows ~302 ms minimum between shifts.
+// The old "hold the level" logic let a release bounce make a second edge (two-
+// gear jump) and let a quick re-tap land in the busy window (press-twice).
+#define PADDLE_SHIFT_LOCKOUT_MS 300      // smallest gap before the next tip edge is accepted (OEM min ~302 ms)
+
 // Which paddle frame(s) go on the bus (web page drop-down, saved as "paddleMode"):
 //   "Off" - nothing sent (non-VW cars, or no paddles fitted)
 //   "MQB" - Gateway_74 0x3DD
 //   "PQ"  - GRA_Neu 0x38A
 //   "All" - both (neither ID is used on the other platform's drivetrain CAN)
 #define PADDLE_OUTPUT_DEFAULT "Off"
+
+// ===== MK4 cruise stalk =====
+// Added in V4.02, rebuilt from a customer's own MK4 build (v4.01.2) for a PQ
+// engine in a car with the MK4 cruise stalk. "Input Mode" on the web page picks
+// what connector pins 10, 11 and 12 are used for:
+//   DSG Paddles     - pin 10 paddle +, pin 11 paddle -, pin 12 hall speed (as before)
+//   MK4 Cruise Stalk - pin 10 main switch, pin 11 SET, pin 12 RESUME, each on when grounded
+// In cruise stalk mode the stalk goes to the ECU in GRA_Neu (0x38A, every 20 ms)
+// instead of the paddles, the paddle bits are always 0 (the stalk can never shift
+// the gearbox) and no 0x3DD is sent. Hall speed isn't available (pin 12 is RESUME).
+// Saved as "cruiseStalk" - the same key as the customer's build, so their setting carries across.
+// GRA_Neu byte 1 (cruise buttons):
+#define GRA_MAIN_SWITCH 0x01      // byte 1 bit 0: GRA_Hauptschalter, main switch on
+#define GRA_CANCEL 0x02           // byte 1 bit 1: GRA_Abbrechen, cancel
+// GRA_Neu byte 2 (bits 0-1, under the counter and sender code):
+#define GRA_SET 0x01              // byte 2 bit 0: GRA_Neu_Setzen, SET
+#define GRA_RESUME 0x02           // byte 2 bit 1: GRA_Recall, RESUME
+#define CRUISE_CANCEL_MS 200      // switching the main switch off sends "cancel" for this long
+#define CRUISE_RESUME_DEBOUNCE_MS 30 // RESUME (pin 12) must read the same for this long to count. Pins 10/11 use PADDLE_DEBOUNCE_MS
+
+// ===== PQ gateway frames =====
+// Also from the customer's MK4 build: frames a PQ35/46 gateway would normally
+// send, for a PQ engine and DSG in a car without the right gateway, so they stop
+// logging them as missing. Off by default ("Send PQ Gateway Frames" on the web
+// page, saved as "gwEmu" - the customer build's key). Each frame stops by itself
+// for a second whenever another module sends that ID, so a real gateway always wins.
+// Byte values are the ones the customer's build sends (not checked against a log here).
+#define BSG_LAST_ID 0x570         // BSG_Last (power management): ignition / engine running + battery voltage, every 100 ms
+#define GATE_KOMF_1_ID 0x390      // Gate_Komf_1 (comfort gateway): reverse gear bit, every 100 ms
+#define DIAGNOSE_1_ID 0x7D0       // Diagnose_1 (diagnostic data): mileage, every 500 ms
+#define KOMBI_3_ID 0x520          // Kombi_3 from the cluster: the mileage we copy into Diagnose_1 (read only)
+#define GATEWAY_FAST_MS 100       // 0x570 and 0x390 go out this often
+#define GATEWAY_SLOW_MS 500       // 0x7D0 goes out this often
+#define GATEWAY_OTHER_SENDER_MS 1000 // another module sent the ID in this long = stay quiet on it
+#define GATEWAY_KM_TIMEOUT_MS 5000   // mileage older than this counts as "not from the cluster" (0 sent)
+#define CLUSTER_KM_MAX 999999     // highest believable mileage from the cluster
+#define ENGINE_RUNNING_RPM 400    // CAN RPM above this = engine running (0x570 byte 0 bit 7, 13.8 V)
+#define GATEWAY_STATE_OFF 0       // web page: gateway frames switched off
+#define GATEWAY_STATE_SENDING 1   // web page: we're sending this frame
+#define GATEWAY_STATE_OTHER 2     // web page: another module sends it, so we're quiet
 
 // MQB selector lever (Waehlhebel_03, 0x0AF, 10 ms) and the gearbox's reply to
 // it (Getriebe_06, 0x128, 20 ms). READ ONLY - shown on the web page.
@@ -616,10 +689,13 @@ extern uint32_t stackcheckError;
 
 // for main functions
 extern void basicInit(void);
+extern void finishInit(void);
 extern void checkError(void *args);
 extern void canInit(void);
 extern void onBodyRX(const twai_message_t &frame);
 extern void needleSweep(void);
+extern void startNeedleSweep(void);
+extern void needleSweepTask(void *args);
 extern void setupPins(void);
 extern void blinkLED(int duration, int flashes, bool boolEPC, bool boolEML, bool boolRPM, bool boolSpeed);
 extern void updateBlinkLED(void);

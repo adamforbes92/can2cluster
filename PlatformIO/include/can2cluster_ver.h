@@ -112,4 +112,53 @@ V4.01 - MQB paddles rebuilt after a full review of the Tplus/Tminus logs against
             gearbox warning) and Test Paddle +/- buttons. Paddle frames we send
             are copied into the SavvyCAN analyzer stream.
 
+V4.02 - MK4 cruise stalk and PQ gateway frames, rebuilt from a customer's own
+        MK4 build (v4.01.2, binaries only - worked out from its firmware and web page).
+        New "Input Mode" (Configuration tab): pins 10/11/12 are either the DSG
+            paddles + hall speed (as before, the default) or the MK4 cruise
+            stalk: pin 10 main switch, pin 11 SET, pin 12 RESUME, sent to a PQ
+            ECU in GRA_Neu (0x38A) every 20 ms. Switching the main switch off
+            sends cancel for 200 ms. Paddle bits always 0 in this mode, no 0x3DD,
+            no hall speed. Saved under the customer build's key ("cruiseStalk").
+        New "Send PQ Gateway Frames" (off by default): 0x570 BSG_Last and 0x390
+            Gate_Komf_1 every 100 ms, 0x7D0 Diagnose_1 every 500 ms with the
+            mileage read from the cluster's Kombi_3 (0x520). Each goes quiet for
+            a second whenever another module sends that ID. Key "gwEmu".
+        Needle sweep starts as soon as the outputs are set up, in its own task,
+            instead of after the GPS search (3 s with no GPS fitted) and the
+            500 ms settle delay. The rest of start-up carries on during the sweep.
+        New "Speedo Dial Top" setting (60-400, default 200): where the sweep
+            takes the speed needle. Up to V4.01 it was fixed at 200. The hall /
+            VR frequency sliders still mean "Hz at 200 km/h", so no speed
+            calibration moves.
+        Web page: RPM / Speed Step sliders now 1-50 (anything above 50 was reset
+            at boot); the Speed Output Test slider goes up to the dial top.
+        platformio.ini: no per-project build_dir (the desktop's
+            PLATFORMIO_WORKSPACE_DIR handles it).
+
+V4.03 - DSG paddles reworked and the MQB speed read fixed, after reverse-
+        engineering the DSG mechatronic firmware (DQ250 02E, DQ500 0BH, DQ250-MQB
+        0D9; DQ381 0GC encrypted). Write-ups in Documents/dsg_re/.
+        Paddles now send ONE clean edge per pull instead of holding the level:
+            on the paddle's rising edge we send the tip bit for one pulse, then
+            force it back to 0, and lock the next shift out for
+            PADDLE_SHIFT_LOCKOUT_MS (300 ms). This matches how the gearbox really
+            accepts a tip (edge-triggered, a one-shot latch that only re-arms on
+            release; the OEM gateway log shows ~302 ms minimum between shifts).
+            Fixes the two faults: a release bounce used to make a second edge
+            (one pull, two gears - worst on downshifts, which the MQB firmware
+            doesn't latch) and a quick re-tap used to land in the shift-busy
+            window and be dropped (press twice). Holding a paddle now gives
+            exactly one shift, like the factory.
+        MQB DSG speed over UDS corrected: was a placeholder (DID 0x0101, /100 on
+            the OBD2 broadcast 0x7DF). Now DID 0x100A "Vehicle speed from
+            transmission" on the DSG's own IDs 0x7E1/0x7E9, read as 16-bit
+            little-endian signed, km/h = raw/10. (PQ DSG speed is unchanged -
+            TP2.0 KWP 21 01, raw/3 - which the DQ500 firmware confirmed is right.)
+            The DID number and raw/10 want one on-car check: the DID table sits
+            in a flash region the FRF didn't contain.
+        Paddle frame still chosen on the web page (Off / MQB 0x3DD / PQ 0x38A /
+            both): a PQ gearbox only reads 0x38A, an MQB one only 0x3DD, so the
+            setting must match the box (a wrong one does nothing).
+
 */

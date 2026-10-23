@@ -9,7 +9,7 @@
     <meta http-equiv="Expires" content="0">
 
     <title>Can2Cluster</title>
-    <link rel="stylesheet" href="style.css?v=3.24">
+    <link rel="stylesheet" href="style.css?v=4.03">
 </head>
 
 <body>
@@ -75,12 +75,16 @@
                         <div class="status-value" id="parkStatus">--</div>
                     </div>
                     <div class="status-item">
-                        <div class="status-label">Paddle Up</div>
+                        <div class="status-label" id="paddleUpLabel">Paddle Up</div>
                         <div class="status-value" id="paddleUpStatus">--</div>
                     </div>
                     <div class="status-item">
-                        <div class="status-label">Paddle Down</div>
+                        <div class="status-label" id="paddleDownLabel">Paddle Down</div>
                         <div class="status-value" id="paddleDownStatus">--</div>
+                    </div>
+                    <div class="status-item" id="cruiseResumeItem" style="display:none;">
+                        <div class="status-label">Cruise RESUME</div>
+                        <div class="status-value" id="cruiseResumeStatus">--</div>
                     </div>
                 </div>
             </section>
@@ -95,6 +99,7 @@
         <div class="page" id="configuration-page">
             <section class="card">
                 <h2>Needle Sweep Configuration</h2>
+                <p class="hint">At power-up the needles sweep to the top of the dial and back, starting as soon as the outputs are ready. Higher Sweep Speed and Step values make the sweep slower.</p>
                 <div class="form-group">
                     <label>
                         <input type="checkbox" id="hasNeedleSweep">
@@ -102,16 +107,21 @@
                     </label>
                 </div>
                 <div class="input-group">
+                    <label>Speedo Dial Top: <span id="maxSpeed-display">200</span> <span id="maxSpeed-unit">KMH</span></label>
+                    <input type="range" id="maxSpeed" min="60" max="400" step="10" value="200" class="slider">
+                    <small style="color: var(--text-dim);">The highest number on the speedo. The sweep takes the speed needle up to here.</small>
+                </div>
+                <div class="input-group">
                     <label>Sweep Speed (ms): <span id="sweepSpeed-display">18</span></label>
                     <input type="range" id="sweepSpeed" min="1" max="100" step="1" value="18" class="slider">
                 </div>
                 <div class="input-group">
-                    <label>RPM Step: <span id="stepRPM-display">100</span></label>
-                    <input type="range" id="stepRPM" min="0" max="500" step="5" value="100" class="slider">
+                    <label>RPM Step: <span id="stepRPM-display">12</span></label>
+                    <input type="range" id="stepRPM" min="1" max="50" step="1" value="12" class="slider">
                 </div>
                 <div class="input-group">
-                    <label>Speed Step: <span id="stepSpeed-display">100</span></label>
-                    <input type="range" id="stepSpeed" min="0" max="500" step="5" value="100" class="slider">
+                    <label>Speed Step: <span id="stepSpeed-display">10</span></label>
+                    <input type="range" id="stepSpeed" min="1" max="50" step="1" value="10" class="slider">
                 </div>
                 <button class="btn-secondary" id="testNeedleSweep">Test Needle Sweep</button>
             </section>
@@ -167,6 +177,68 @@
             </section>
 
             <section class="card">
+                <h2>Input Mode</h2>
+                <p class="hint">What connector pins 10, 11 and 12 are used for. <strong>DSG Paddles</strong>: pin 10 paddle +, pin 11 paddle &minus;, pin 12 hall speed. <strong>MK4 Cruise Stalk</strong>: pin 10 main switch, pin 11 SET, pin 12 RESUME, each on when grounded, sent to a PQ ECU in the cruise frame (GRA 0x38A) every 20 ms.</p>
+                <div class="input-group">
+                    <label>Pins 10 / 11 / 12</label>
+                    <select id="inputMode">
+                        <option value="Paddles">DSG Paddles</option>
+                        <option value="Cruise">MK4 Cruise Stalk</option>
+                    </select>
+                </div>
+                <p class="hint"><strong>Match the wiring.</strong> In paddle mode, grounding pin 10 or 11 shifts the gearbox, so never pick DSG Paddles while the cruise stalk is wired to those pins. In cruise stalk mode hall speed isn't available (pin 12 is RESUME) and no paddle frames are sent; the paddle bits in 0x38A are always 0, so the stalk can never shift the gearbox.</p>
+                <div class="status-grid" id="cruiseGrid" style="display:none;">
+                    <div class="status-item">
+                        <div class="status-label">Main Switch (pin 10)</div>
+                        <div class="status-value" id="cruiseMain">--</div>
+                    </div>
+                    <div class="status-item">
+                        <div class="status-label">SET (pin 11)</div>
+                        <div class="status-value" id="cruiseSet">--</div>
+                    </div>
+                    <div class="status-item">
+                        <div class="status-label">RESUME (pin 12)</div>
+                        <div class="status-value" id="cruiseResume">--</div>
+                    </div>
+                    <div class="status-item">
+                        <div class="status-label">Sending (0x38A)</div>
+                        <div class="status-value" id="cruiseSending">--</div>
+                    </div>
+                </div>
+                <p class="hint" id="cruiseHint" style="display:none;">Check each stalk position here before driving: the matching box should turn green. Cruise also has to be enabled in the ECU coding, and the ECU must see both brake switches.</p>
+            </section>
+
+            <section class="card">
+                <h2>PQ Gateway Frames</h2>
+                <p class="hint">For a PQ35/46 engine and DSG in a car without the right gateway: sends the frames a gateway normally would, so the ECU and DSG stop logging them as missing. Leave off on cars that have one. Each frame stops by itself while another module is sending it.</p>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="gatewayFrames">
+                        Send PQ Gateway Frames
+                    </label>
+                </div>
+                <div class="status-grid">
+                    <div class="status-item">
+                        <div class="status-label">0x570 Power Management</div>
+                        <div class="status-value" id="gwBsgLast">--</div>
+                    </div>
+                    <div class="status-item">
+                        <div class="status-label">0x390 Comfort Gateway</div>
+                        <div class="status-value" id="gwGateKomf1">--</div>
+                    </div>
+                    <div class="status-item">
+                        <div class="status-label">0x7D0 Diagnostic Data</div>
+                        <div class="status-value" id="gwDiagnose1">--</div>
+                    </div>
+                    <div class="status-item">
+                        <div class="status-label">Mileage (from 0x520)</div>
+                        <div class="status-value" id="gwKm">--</div>
+                    </div>
+                </div>
+                <p class="hint">0x570 carries ignition on / engine running and the battery voltage, 0x390 the reverse gear, 0x7D0 the mileage read from the cluster (0 until the cluster sends it).</p>
+            </section>
+
+            <section class="card">
                 <h2>DSG Paddle Output</h2>
                 <p class="hint">Which CAN frame the paddle inputs are sent as. MQB gearboxes read the wheel paddles from 0x3DD, PQ gearboxes from the GRA frame 0x38A. Works with any speed source; Off sends nothing. If a factory gateway is already sending that frame, Can2Cluster stays quiet on it and shows "Gateway owns".</p>
                 <div class="input-group">
@@ -200,6 +272,7 @@
                         <div class="status-value" id="mqbGearboxWarning">--</div>
                     </div>
                 </div>
+                <p class="hint" id="paddleStalkNote" style="display:none;"><strong>Not used in cruise stalk mode:</strong> pins 10 and 11 carry the cruise stalk, so no paddle frames are sent and the test buttons do nothing.</p>
                 <button class="btn-secondary" id="paddleTestUp">Test Paddle +</button>
                 <button class="btn-secondary" id="paddleTestDown">Test Paddle -</button>
                 <p class="hint">Test with the engine running - a DSG never changes gear with the engine off. In D, a paddle pull should switch Tip Mode to "Paddle (temporary)".</p>
@@ -333,6 +406,7 @@
                     </select>
                 </div>
 
+                <p class="hint">Max Hall / VR Sensor Frequency is the sensor's frequency at 200 km/h. Hall speed isn't available in cruise stalk mode (pin 12 is the RESUME button).</p>
                 <div class="input-group" style="margin-top: 1rem;">
                     <label>Max Hall Sensor Frequency: <span id="maxFreqHall-display">200</span> Hz</label>
                     <input type="range" id="maxFreqHall" min="10" max="500" step="5" value="200" class="slider">
@@ -828,8 +902,8 @@
 
     </div>
 
-    <script src="app.js?v=3.24"></script>
-    <script src="ota.js?v=3.24"></script>
+    <script src="app.js?v=4.03"></script>
+    <script src="ota.js?v=4.03"></script>
 </body>
 
 </html>

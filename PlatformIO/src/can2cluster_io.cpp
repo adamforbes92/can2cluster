@@ -231,46 +231,54 @@ void setupSquareWaveOutputs()
 }
 }
 
+// First part of start-up: only the quick jobs the needle sweep needs (Serial,
+// the saved settings and the output pins), so the sweep can start straight away.
+// V4.02: up to V4.01 the sweep waited for everything in finishInit() as well -
+// mostly the GPS search, which takes 3 s when no GPS module is fitted.
 void basicInit()
 {
-// basic initialisation - setup pins for IO & setup CAN for receiving...
-
-  // UNCONDITIONAL - do not put this back behind the debug flags.
-  //
-  // These two lines were the ONLY functional code anywhere behind a debug
-  // #if; everything else those flags guard is printing. That made a
-  // debug build and a release build genuinely different machines: with the
-  // flags off there is no settling delay before i2cInit() and
-  // the radio comes up ~500 ms earlier, and the AP then fails to appear -
-  // a fault that vanishes the moment you switch debug on to look at it.
-  //
   // Serial itself is harmless here: the SavvyCAN analyser re-opens UART0 at
   // 1 Mbaud when it is enabled (can2cluster_savvycan.cpp), and on a DevKit
   // UART0 is the USB bridge, so nothing else contends for the pins.
   // (On the S3 board Serial is the module's own native USB instead.)
   Serial.begin(baudSerial);
-  delay(500);
   DEBUG("[Init] CAN-BUS to Cluster Initialising (%s)...", BOARD_NAME);
+
+  DEBUG("[Init] Reading EEPROM...");
+  readEEP(); // read the saved settings (needle sweep on/off, sweep speed, dial top, coil or square-wave RPM)
+  DEBUG("[Init] Read EEPROM!");
+
+  DEBUG("[Init] Setting up IO (pins & buttons)...");
+  setupButtons(); // paddle switches (debounce time)
+  setupPins();    // begin IO - the speed and RPM outputs are ready for the needle sweep after this
+  DEBUG("[Init] Setup IO Complete!");
+}
+
+// Second part of start-up: the slower jobs. Runs while the needle sweep is
+// already moving the needles in its own task.
+void finishInit()
+{
+  // UNCONDITIONAL - do not put this back behind the debug flags.
+  //
+  // This delay was once the only working code behind a debug #if; everything
+  // else those flags guard is printing. That made a debug build and a release
+  // build genuinely different machines: with the flags off there is no settling
+  // delay before i2cInit() and the radio comes up ~500 ms earlier, and the AP
+  // then fails to appear - a fault that vanishes the moment you switch debug on
+  // to look at it. (V4.02: it now comes after the pins are set up, so the
+  // needle sweep doesn't wait for it, but it still comes before I2C and WiFi.)
+  delay(500);
 
   // S3: bring up the I2C bus + coolant DAC (does nothing on the DevKit)
   i2cInit();
 
-  DEBUG("[Init] Reading EEPROM...");
-  readEEP(); // read EEPROM
-  DEBUG("[Init] Read EEPROM!");
-
-  initGPS(); // initialise GPS serial at default baud and reset state
+  initGPS(); // look for a GPS module (listens for up to 1.5 s at each of two baud rates when none is fitted)
 #if serialDebugGPS
   // DEBUG_GPS(TinyGPSPlus::libraryVersion());
   DEBUG_GPS("Sats HDOP  Latitude   Longitude   Fix  Date       Time     Date Alt    Course Speed Card  Distance Course Card  Chars Sentences Checksum");
   DEBUG_GPS("           (deg)      (deg)       Age                      Age  (m)    --- from GPS ----  ---- to London  ----  RX    RX        Fail");
   DEBUG_GPS("----------------------------------------------------------------------------------------------------------------------------------------");
 #endif
-
-  DEBUG("[Init] Setting up IO (pins & buttons)...");
-  setupButtons(); // paddle switches (debounce time)
-  setupPins();    // begin IO
-  DEBUG("[Init] Setup IO Complete!");
 
   DEBUG("[Init] CAN Chip Initialising...");
   canInit(); // initialise the CAN chip
@@ -298,6 +306,7 @@ void setupPins()
   pinMode(pinRPM, OUTPUT);  // for standard square wave RPM
   pinMode(pinRpmPulse, INPUT);
   pinMode(pinVR, INPUT); // VR speed sensor input (external pull-up to 3.3V)
+  pinMode(pinHallSensor, INPUT); // hall speed input - also read as cruise RESUME in cruise stalk mode
 
   // Hold generated outputs low until an active frequency is requested.
   digitalWrite(pinCoil, LOW);
@@ -421,9 +430,49 @@ void setupButtons()
   btnPadDown.setDebounceMs(PADDLE_DEBOUNCE_MS);
 }
 
+// Start a needle sweep in its own task, so start-up (GPS search, CAN, WiFi)
+// carries on while the needles move. Used at power-up and by the web page's
+// "Test Needle Sweep" button. Does nothing if a sweep is already running.
+void startNeedleSweep()
+{
+  if (isNeedleSweeping)
+  {
+    return; // one at a time
+  }
+  isNeedleSweeping = true; // the speed / RPM tasks leave the outputs alone from now on
+
+  BaseType_t created = xTaskCreatePinnedToCore(
+      needleSweepTask, // the function the task runs
+      "needleSweep",   // task name (for debugging)
+      3000,            // stack size in bytes
+      NULL,            // nothing passed in
+      12,              // priority: above the speed / RPM tasks so the sweep stays smooth
+      NULL,            // no task handle needed - it deletes itself
+      1);              // core 1, with the other IO tasks (core 0 is kept for WiFi)
+
+  if (created != pdPASS)
+  {
+    isNeedleSweeping = false; // no memory for the task: skip the sweep rather than leave the outputs frozen
+    DEBUG("[Init] Needle sweep task didn't start (not enough memory)");
+  }
+}
+
+// One needle sweep, then the task removes itself
+void needleSweepTask(void *args)
+{
+  DEBUG("[Init] Needle sweep...");
+  needleSweep();
+  isNeedleSweeping = false; // hand the outputs back to the speed / RPM tasks
+  DEBUG("[Init] Needle sweep done!");
+  vTaskDelete(NULL);        // NULL = delete this task (it has finished its one job)
+}
+
 void needleSweep()
 {
-  // Task suspension is handled by the caller (main loop) via tasksSuspendAll() / tasksResumeAll().
+  // Runs in needleSweepTask. updateSpeed / updateRPM / diagTestTask skip their
+  // output writes while isNeedleSweeping is true, so nothing fights the sweep.
+  // maxSpeed is the "Speedo Dial Top" setting: 1 Hz on the speed output = 1 km/h
+  // (or 1 mph on an MPH cluster), so sweeping to maxSpeed Hz puts the needle at the top of the dial.
 
   const uint32_t kSweepPollMs = 10;
 
@@ -612,7 +661,7 @@ void diagTestTask(void *args)
 {
   while (1)
   {
-    if (!diagTest)
+    if (!diagTest || isNeedleSweeping) // nothing to do, or the needle sweep owns the outputs right now
     {
       vTaskDelay(pdMS_TO_TICKS(100));
       continue;

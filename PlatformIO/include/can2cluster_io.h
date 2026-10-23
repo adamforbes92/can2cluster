@@ -4,6 +4,7 @@
 #include "can2cluster_defs.h"
 
 void basicInit(void);
+void finishInit(void);
 void setupPins(void);
 void setupButtons(void);
 void setupTasks(void);
@@ -21,6 +22,8 @@ void broadcastSpeed(void *args);
 void parseGPS(void *args);
 void parseDSG(void *args);
 void needleSweep(void);
+void startNeedleSweep(void);       // start a needle sweep running in its own task (does nothing if one is already running)
+void needleSweepTask(void *args);  // the task that runs one sweep, then deletes itself
 
 void setupBoardSwitches(void); // S3: set the CAN standby/termination and pull-up switch pins
 

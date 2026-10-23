@@ -36,9 +36,18 @@
 // UDS (ISO-TP / ISO 14229) speed polling
 // Default IDs and DID — adjust per vehicle/ECU via defines below
 // ---------------------------------------------------------------------------
-#define UDS_TX_ID           0x7DFU  // OBD2/UDS functional broadcast
-#define UDS_RX_ID           0x7E8U  // Typical ECU 1 response ID
-#define UDS_SPEED_DID       0x0101U // DID for vehicle speed — adjust per ECU
+// MQB DSG (DQ250-MQB / DQ381) answers UDS on its own physical IDs, not the
+// OBD2 broadcast. DID 0x100A = "Vehicle speed from transmission" (the gearbox's
+// own theoretical road speed, the MQB equivalent of the PQ TP2.0 raw/3 value).
+// From the firmware RE + opendbc/OBDb: 16-bit, LITTLE-endian, signed,
+// km/h = raw/10. The firmware carries road speed at 0.1 km/h per LSB (confirmed:
+// a divide-by-10 against a km/h limit). See Documents/dsg_re/DSG_RE_SUMMARY.md.
+// ** CONFIRM ON THE CAR ONCE **: read 22 10 0A on 0x7E1/0x7E9 at a known speed;
+// the DID table itself is in a part of the flash we couldn't dump, so the DID
+// number and the raw/10 are from the RE + community data, not byte-proven.
+#define UDS_TX_ID           0x7E1U  // DSG physical request (DQ250-MQB / DQ381)
+#define UDS_RX_ID           0x7E9U  // DSG physical response
+#define UDS_SPEED_DID       0x100AU // "Vehicle speed from transmission": 16-bit LE signed, km/h = raw/10
 
 // ISO-TP PCI nibbles
 #define ISOTP_SF  0x00U  // Single Frame

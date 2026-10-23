@@ -6,7 +6,8 @@ Main features:
 > 12v Positive output for reverse light (5A max!)
 > RPM/Speed/EML/EPC outputs (200mA max!)
 > GPS input for speedo and odometer (1Hz or 5Hz update)
-> DSG Paddles (ground to activate)
+> DSG Paddles (ground to activate), or an MK4 cruise stalk sent to a PQ ECU (GRA 0x38A)
+> Optional PQ gateway frames (0x570 / 0x390 / 0x7D0) for cars without the right gateway
 > Needle sweep & shift light
 > WiFi config
 > SavvyCAN / GVRET implementation for CAN analysis (TCP:23 or Serial 1Mbaud)
@@ -37,20 +38,20 @@ OneButton btnPadUp(pinPaddleUp, true, true);     // active-low with internal pul
 OneButton btnPadDown(pinPaddleDown, true, true); // active-low with internal pull-up
 
 void setup() {
-  basicInit();   // basic init for setting up Serial / IO / CAN / GPS
-  setupTasks();  // setup tasks for each of the main functions - CAN Chassis/Haldex handling, Serial prints, Standalone, etc - in '_io.ino'
+  basicInit();   // Serial, saved settings and the IO pins - everything the needle sweep needs
 
   if (hasNeedleSweep) {
-    tasksSuspendAll();
-    needleSweep();
-    tasksResumeAll();
+    startNeedleSweep(); // sweep the needles straight away - it runs in its own task while the rest starts up
   }
+
+  finishInit();  // the slower start-up jobs: I2C, GPS search (up to 3 s with no GPS fitted) and CAN
+  setupTasks();  // setup tasks for each of the main functions - CAN Chassis/Haldex handling, Serial prints, Standalone, etc - in '_tasks.cpp'
 
   connectWifi();         // enable / start WiFi
   setupUI();             // setup wifi user interface
   setupAnalyzer();       // SavvyCAN/GVRET analyzer (TCP:23 or Serial 1Mbaud)
 
-  // Universal reduced-power module: turns WiFi off 5 min after the last client
+  // Universal reduced-power module: turns WiFi off 1 min after the last client
   // disconnects, scales the CPU 240->80 MHz, releases Bluetooth and kills the
   // onboard LED to cut current draw (and therefore linear-regulator heat).
   power_config_t pcfg = powerDefaultConfig();
@@ -77,11 +78,10 @@ void loop() {
 
   // (the paddles are read by the broadcastPaddles task, not here)
 
+  // "Test Needle Sweep" on the web page
   if (tempNeedleSweep) {
-    tasksSuspendAll();
-    needleSweep();
-    tasksResumeAll();
     tempNeedleSweep = false;
+    startNeedleSweep(); // runs in its own task, like the power-up sweep
   }
 
   wifiManagerTick(); // Home WiFi (bridge mode): connection tracking + retry back-off

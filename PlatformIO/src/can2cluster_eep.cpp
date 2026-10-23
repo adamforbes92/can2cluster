@@ -57,6 +57,8 @@ void readEEP() {
     }
     pref.putString("dsgParkMode", dsgParkMode);
     pref.putString("paddleMode", paddleOutput); // V4.01 key (see the migration below)
+    pref.putBool("cruiseStalk", useCruiseStalk);  // V4.02: same key as the customer's MK4 build
+    pref.putBool("gwEmu", useGatewayFrames);      // V4.02: same key as the customer's MK4 build
     pref.putBool("autoDiagQuery", autoDiagQuery);
     pref.putBool("useAftermarket", useAftermarket);
     pref.putUInt("amSpeedID", aftermarketSpeedID);
@@ -110,6 +112,7 @@ void readEEP() {
     shiftFlashes = pref.getUChar("shiftFlashes", 3);
     sweepSpeed = pref.getUChar("sweepSpeed", 18);
     maxSpeed = pref.getUShort("maxSpeed", 200);
+    if (maxSpeed < SPEEDO_DIAL_TOP_MIN || maxSpeed > SPEEDO_DIAL_TOP_MAX) maxSpeed = 200; // not a believable dial top: back to the old fixed 200
     maxRPM = pref.getUShort("maxRPM", 230);
     maxFreqHall = pref.getUShort("maxFreqHall", 200);
     maxFreqVR = pref.getUShort("maxFreqVR", 200);
@@ -160,6 +163,11 @@ void readEEP() {
       }
       pref.putString("paddleMode", paddleOutput);
     }
+
+    // MK4 cruise stalk and PQ gateway frames (V4.02). Same keys as the customer's
+    // MK4 build (v4.01.2), so a car already set up on it keeps its settings.
+    useCruiseStalk = pref.getBool("cruiseStalk", false);
+    useGatewayFrames = pref.getBool("gwEmu", false);
 
     autoDiagQuery = pref.getBool("autoDiagQuery", useTP20 || useUDS);
     useAftermarket = pref.getBool("useAftermarket", false);
@@ -296,6 +304,8 @@ void writeEEP(void *args) {
     }
     pref.putString("dsgParkMode", dsgParkMode);
     pref.putString("paddleMode", paddleOutput);
+    pref.putBool("cruiseStalk", useCruiseStalk);
+    pref.putBool("gwEmu", useGatewayFrames);
     pref.putBool("autoDiagQuery", autoDiagQuery);
     pref.putBool("useAftermarket", useAftermarket);
     pref.putUInt("amSpeedID", aftermarketSpeedID);
