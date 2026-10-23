@@ -1,11 +1,54 @@
 {
   "product": "Can2Cluster",
-  "latest": "4.01",
+  "latest": "4.03",
   "latestByBoard": {
-    "esp32": "4.01",
-    "esp32s3": "4.01"
+    "esp32": "4.03",
+    "esp32s3": "4.03"
   },
   "releases": [
+    {
+      "version": "4.03",
+      "channel": "stable",
+      "date": "2026-10-23",
+      "ota": true,
+      "notes": "DSG paddles reworked to one clean tip per pull - fixes the occasional double gear-jump and needing to press twice. MQB DSG speed now read over UDS (DID 0x100A, km/h = raw/10). Also includes V4.02: MK4 cruise stalk input, optional PQ gateway frames, instant needle sweep and settable Speedo Dial Top.",
+      "boards": {
+        "esp32": {
+          "firmware": {
+            "path": "V4.03/firmware.bin",
+            "size": 1251712,
+            "sha256": "682fee1d75375dc5d13412cfba1ebeb5c2eb763616dd99b3773c2dbf110dca4c"
+          },
+          "filesystem": {
+            "path": "V4.03/littlefs.bin",
+            "size": 655360,
+            "sha256": "648e991a500a635386c2accec2cf3a5692437975e884508d40e899f1ef97354b"
+          }
+        },
+        "esp32s3": {
+          "firmware": {
+            "path": "V4.03-S3/firmware.bin",
+            "size": 1235504,
+            "sha256": "9226eaf98906ba0efc2dfe2ae96bb0e29b74a8526407520c711e09b030aadf18"
+          },
+          "filesystem": {
+            "path": "V4.03-S3/littlefs.bin",
+            "size": 1048576,
+            "sha256": "adf044979f39e4bcf5efc0eb7beb293be40761646ac7ba54f0a1dba39f906853"
+          }
+        }
+      },
+      "firmware": {
+        "path": "V4.03/firmware.bin",
+        "size": 1251712,
+        "sha256": "682fee1d75375dc5d13412cfba1ebeb5c2eb763616dd99b3773c2dbf110dca4c"
+      },
+      "filesystem": {
+        "path": "V4.03/littlefs.bin",
+        "size": 655360,
+        "sha256": "648e991a500a635386c2accec2cf3a5692437975e884508d40e899f1ef97354b"
+      }
+    },
     {
       "version": "4.01",
       "channel": "stable",
