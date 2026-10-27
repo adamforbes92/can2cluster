@@ -1,11 +1,54 @@
 {
   "product": "Can2Cluster",
-  "latest": "4.03",
+  "latest": "4.04",
   "latestByBoard": {
-    "esp32": "4.03",
-    "esp32s3": "4.03"
+    "esp32": "4.04",
+    "esp32s3": "4.04"
   },
   "releases": [
+    {
+      "version": "4.04",
+      "channel": "stable",
+      "date": "2026-10-26",
+      "ota": true,
+      "notes": "Fuel pump relay on the EML or EPC output: primes for a set time at power-up, then runs while the ECU sends RPM on CAN, and goes off when the RPM stops.",
+      "boards": {
+        "esp32": {
+          "firmware": {
+            "path": "V4.04/firmware.bin",
+            "size": 1253088,
+            "sha256": "e4776e1694e0bd27e6e7ece06518c529b8858c313b0e6e12d4f274c2d5644172"
+          },
+          "filesystem": {
+            "path": "V4.04/littlefs.bin",
+            "size": 655360,
+            "sha256": "32138a9a22d16568e1dd1615d43bcf704e4b0359f18f98243d1578f2565db165"
+          }
+        },
+        "esp32s3": {
+          "firmware": {
+            "path": "V4.04-S3/firmware.bin",
+            "size": 1236784,
+            "sha256": "eac28d14ec88ebd15d59fbe56abdf0c4c067c1ed663dedf875d5b1be4c851611"
+          },
+          "filesystem": {
+            "path": "V4.04-S3/littlefs.bin",
+            "size": 1048576,
+            "sha256": "bc68708f9ddb623da68127df612e5b14b286b688c0256aa8141113086113c239"
+          }
+        }
+      },
+      "firmware": {
+        "path": "V4.04/firmware.bin",
+        "size": 1253088,
+        "sha256": "e4776e1694e0bd27e6e7ece06518c529b8858c313b0e6e12d4f274c2d5644172"
+      },
+      "filesystem": {
+        "path": "V4.04/littlefs.bin",
+        "size": 655360,
+        "sha256": "32138a9a22d16568e1dd1615d43bcf704e4b0359f18f98243d1578f2565db165"
+      }
+    },
     {
       "version": "4.03",
       "channel": "stable",
