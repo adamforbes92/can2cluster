@@ -1,5 +1,7 @@
 
 # Can2Cluster
+
+**Get one ready-built:** [Can2Cluster at Forbes Automotive](https://forbes-automotive.com/products/can2cluster?utm_source=github&utm_medium=readme&utm_campaign=can2cluster) · Pair it with a [SpeedPulser](https://forbes-automotive.com/products/speedpulser?utm_source=github&utm_medium=readme&utm_campaign=can2cluster) for cable speedos · Not sure which board you need? See the [speedo, tacho & cluster comparison](https://forbes-automotive.com/collections/speedo-tacho-cluster?utm_source=github&utm_medium=readme&utm_campaign=can2cluster).
 Can2Cluster takes CAN messages and turns them into the analogue signals older instrument clusters expect: RPM, speed, Engine Management Light (EML), Electronic Pedal Control light (EPC), reverse and a coolant gauge. It is built around VAG CAN messages (PQ and MQB), with Ford, Emerald and Renault ECUs added too, and runs on an ESP32 DevKit board or the newer ESP32-S3 board from the same code.
 
 DSG gearboxes are supported: speed can be worked out from the current gear and RPM, or read over TP2.0 / UDS. The DSG paddle inputs can shift an MQB or PQ gearbox over CAN, or, on a PQ car with an MK4 cruise stalk, the same inputs can carry the cruise stalk to the ECU.
