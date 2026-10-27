@@ -161,4 +161,17 @@ V4.03 - DSG paddles reworked and the MQB speed read fixed, after reverse-
             both): a PQ gearbox only reads 0x38A, an MQB one only 0x3DD, so the
             setting must match the box (a wrong one does nothing).
 
+V4.04 - fuel pump relay on the EML or EPC output (Configuration tab, Fuel Pump Relay card).
+        Primes for fuelPumpPrimeSeconds (0-30, default 3) at power-up - the
+            pin is switched on in setupPins(), not after the GPS search - then
+            stays on while CAN RPM is >= FUEL_PUMP_MIN_RPM (50, so cranking
+            counts) and the RPM frame arrived in the last
+            FUEL_PUMP_RPM_TIMEOUT_MS (1 s). Off otherwise (engine off / stalled
+            / CAN lost). Every CAN RPM decode now stamps lastRPMCANTime.
+        The pump owns its pin: the light, DSG park and shift light skip it, the
+            shift light / diagnostic flash never touches it, and picking it on
+            the web page moves the shift light, DSG park and (DevKit) coolant
+            gauge off that pin. The EML / EPC output test still wins.
+        Keys "fuelPumpOut" and "fuelPrime".
+
 */

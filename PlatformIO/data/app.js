@@ -98,7 +98,7 @@ function initControls() {
   const otaFsUploadBtn = document.getElementById('otaFsUploadBtn');
 
   // Configuration controls
-  const configInputs = ['hasNeedleSweep', 'sweepSpeed', 'stepRPM', 'stepSpeed', 'maxSpeed', 'shiftLimit', 'shiftFlashes', 'coilType', 'useMPH', 'gatewayFrames'];
+  const configInputs = ['hasNeedleSweep', 'sweepSpeed', 'stepRPM', 'stepSpeed', 'maxSpeed', 'shiftLimit', 'shiftFlashes', 'coilType', 'useMPH', 'gatewayFrames', 'fuelPumpPrime'];
   configInputs.forEach(id => {
     const el = document.getElementById(id);
     if (el) {
@@ -359,6 +359,10 @@ async function fetchSettings() {
     if (useMPHEl) useMPHEl.checked = data.useMPH || false;
     applySpeedUnitLabels(data.useMPH);
     document.getElementById('dsgParkMode').value = data.dsgParkMode || 'None';
+    const fuelPumpOutputEl = document.getElementById('fuelPumpOutput');
+    if (fuelPumpOutputEl) fuelPumpOutputEl.value = data.fuelPumpOutput || 'None';
+    const fuelPumpPrimeEl = document.getElementById('fuelPumpPrime');
+    if (fuelPumpPrimeEl) fuelPumpPrimeEl.value = (data.fuelPumpPrime !== undefined) ? data.fuelPumpPrime : 3;
     const paddleOutputEl = document.getElementById('paddleOutput');
     if (paddleOutputEl) paddleOutputEl.value = data.paddleOutput || 'Off';
     const inputModeEl = document.getElementById('inputMode');
@@ -626,6 +630,18 @@ async function fetchStatus() {
     setOutputPill('epcStatus', !!data.vehicleEPC || testEPCActive, testEPCActive);
     setOutputPill('reverseStatus', !!data.vehicleReverse || testReverseActive, testReverseActive);
     setValuePill('parkStatus', data.vehiclePark ? 'ok' : '', data.vehiclePark ? 'Active' : 'Inactive');
+
+    // Fuel pump relay (Settings card): 0 off, 1 priming at power-up, 2 running on CAN RPM
+    const fuelPumpSelect = document.getElementById('fuelPumpOutput');
+    if (fuelPumpSelect && fuelPumpSelect.value === 'None') {
+      setValuePill('fuelPumpStatus', '', 'Not Used');
+    } else if (data.fuelPumpState === 2) {
+      setValuePill('fuelPumpStatus', 'ok', 'Running');
+    } else if (data.fuelPumpState === 1) {
+      setValuePill('fuelPumpStatus', 'warn', 'Priming');
+    } else {
+      setValuePill('fuelPumpStatus', '', 'Off');
+    }
 
     // Paddle feedback - in cruise stalk mode the same inputs are the cruise stalk
     const isCruiseMode = !!data.cruiseMode;
@@ -1213,15 +1229,16 @@ function applyBoard(board) {
 }
 
 // ============================================================================
-// Output pin conflict handling (EML / EPC shared by Shift Light, DSG Park and
-// the Coolant gauge). Applying a new owner for a pin turns off whatever else
+// Output pin conflict handling (EML / EPC shared by Shift Light, DSG Park, the
+// Coolant gauge and the Fuel Pump Relay). Applying a new owner for a pin turns off whatever else
 // was using it, with a confirmation prompt + toast so nothing is silently lost.
 // ============================================================================
-const OUTPUT_IDS = ['shiftLight', 'dsgParkMode', 'coolantOutput'];
+const OUTPUT_IDS = ['shiftLight', 'dsgParkMode', 'coolantOutput', 'fuelPumpOutput'];
 const FEATURE_LABELS = {
   shiftLight: 'Shift Light',
   dsgParkMode: 'DSG Park Indicator',
-  coolantOutput: 'Coolant Gauge'
+  coolantOutput: 'Coolant Gauge',
+  fuelPumpOutput: 'Fuel Pump Relay'
 };
 let lastOutputValues = {};
 
@@ -1232,7 +1249,7 @@ function pinsForFeature(featureId, value) {
     if (value === 'EPC') return ['EPC'];
     return [];
   }
-  // dsgParkMode and coolantOutput each own a single pin (or none)
+  // dsgParkMode, coolantOutput and fuelPumpOutput each own a single pin (or none)
   if (value === 'EML') return ['EML'];
   if (value === 'EPC') return ['EPC'];
   return [];
@@ -1245,7 +1262,7 @@ function clearedValueForPin(featureId, currentValue, pin) {
     return 'None';
   }
   if (featureId === 'coolantOutput') return 'Off';
-  return 'None'; // dsgParkMode
+  return 'None'; // dsgParkMode, fuelPumpOutput
 }
 
 function syncLastOutputValues() {

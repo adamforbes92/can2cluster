@@ -56,6 +56,8 @@ void readEEP() {
       pref.putUChar(dataKey.c_str(), broadcastSpeedData[i]);
     }
     pref.putString("dsgParkMode", dsgParkMode);
+    pref.putString("fuelPumpOut", fuelPumpOutput);  // V4.04: fuel pump relay output
+    pref.putUChar("fuelPrime", fuelPumpPrimeSeconds); // V4.04: fuel pump prime time, seconds
     pref.putString("paddleMode", paddleOutput); // V4.01 key (see the migration below)
     pref.putBool("cruiseStalk", useCruiseStalk);  // V4.02: same key as the customer's MK4 build
     pref.putBool("gwEmu", useGatewayFrames);      // V4.02: same key as the customer's MK4 build
@@ -143,6 +145,18 @@ void readEEP() {
       broadcastSpeedData[i] = pref.getUChar(dataKey.c_str(), 0);
     }
     dsgParkMode = pref.getString("dsgParkMode", "None");
+
+    // Fuel pump relay (V4.04). Anything other than EML / EPC means "not used".
+    fuelPumpOutput = pref.getString("fuelPumpOut", "None");
+    if (fuelPumpOutput != "EML" && fuelPumpOutput != "EPC")
+    {
+      fuelPumpOutput = "None";
+    }
+    fuelPumpPrimeSeconds = pref.getUChar("fuelPrime", FUEL_PUMP_PRIME_DEFAULT);
+    if (fuelPumpPrimeSeconds > FUEL_PUMP_PRIME_MAX)
+    {
+      fuelPumpPrimeSeconds = FUEL_PUMP_PRIME_MAX;
+    }
 
     // Paddle output. Up to V4.00 it was saved as "paddleOutput" and only worked
     // with DSG as the speed source; "Shifter" (selector 0x0AF) is gone. Carry an
@@ -243,6 +257,7 @@ void readEEP() {
   DEBUG_EEP("broadcastSpeedScale: %.3f", broadcastSpeedScale);
   DEBUG_EEP("broadcastSpeedOffset: %d", broadcastSpeedOffset);
   DEBUG_EEP("dsgParkMode: %s", dsgParkMode.c_str());
+  DEBUG_EEP("fuelPumpOutput: %s, prime %d s", fuelPumpOutput.c_str(), fuelPumpPrimeSeconds);
   DEBUG_EEP("autoDiagQuery: %d", autoDiagQuery);
 #endif
 }
@@ -303,6 +318,8 @@ void writeEEP(void *args) {
       pref.putUChar(dataKey.c_str(), broadcastSpeedData[i]);
     }
     pref.putString("dsgParkMode", dsgParkMode);
+    pref.putString("fuelPumpOut", fuelPumpOutput);  // V4.04: fuel pump relay output
+    pref.putUChar("fuelPrime", fuelPumpPrimeSeconds); // V4.04: fuel pump prime time, seconds
     pref.putString("paddleMode", paddleOutput);
     pref.putBool("cruiseStalk", useCruiseStalk);
     pref.putBool("gwEmu", useGatewayFrames);
@@ -365,6 +382,7 @@ void writeEEP(void *args) {
     DEBUG_EEP("broadcastSpeedScale: %.3f", broadcastSpeedScale);
     DEBUG_EEP("broadcastSpeedOffset: %d", broadcastSpeedOffset);
     DEBUG_EEP("dsgParkMode: %s", dsgParkMode.c_str());
+    DEBUG_EEP("fuelPumpOutput: %s, prime %d s", fuelPumpOutput.c_str(), fuelPumpPrimeSeconds);
     DEBUG_EEP("autoDiagQuery: %d", autoDiagQuery);
 #endif
     vTaskDelay(pdMS_TO_TICKS(eepRefresh));

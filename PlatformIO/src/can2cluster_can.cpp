@@ -162,6 +162,7 @@ void onBodyRX(const twai_message_t &frame)
     // frame[3] (byte 4) > motor speed high byte
     // frame[4] (byte 3) > khm speed?
     vehicleRPMCAN = ((frame.data[3] << 8) | frame.data[2]) * 0.25; // conversion: 0.25*HEX
+    lastRPMCANTime = millis(); // RPM is live on CAN (fuel pump relay uses this)
     break;
 
   case MOTOR2_ID:
@@ -261,12 +262,14 @@ void onBodyRX(const twai_message_t &frame)
 
   case emeraldECU1_ID:
     vehicleRPMCAN = ((frame.data[0] << 8) | frame.data[1]);
+    lastRPMCANTime = millis(); // RPM is live on CAN (fuel pump relay uses this)
     break;
 
   case RENAULT_MEGANE_ECU:
     // Renault Megane engine RPM: bytes 0..1 big-endian, raw/8 (verified against
     // 2K/3K/4K/5K RPM logs — 4000 RPM reads 0x7D00).
     vehicleRPMCAN = (((uint16_t)frame.data[0] << 8) | frame.data[1]) >> 3;
+    lastRPMCANTime = millis(); // RPM is live on CAN (fuel pump relay uses this)
     break;
 
   case emeraldECU2_ID:
@@ -276,6 +279,7 @@ void onBodyRX(const twai_message_t &frame)
   case fordECU1_ID:
     vehicleRPMCAN = frame.data[1] & 0x00FF;
     vehicleRPMCAN |= (frame.data[0] << 8) & 0x7F00;
+    lastRPMCANTime = millis(); // RPM is live on CAN (fuel pump relay uses this)
     break;
 
   case fordECU2_ID:
@@ -291,6 +295,7 @@ void onBodyRX(const twai_message_t &frame)
     // i.e. engine speed (Drehzahl = revs) in RPM, factor 0.25/bit, 16-bit LE, bytes 6+7.
     const uint16_t mo_drehzahl_raw = ((uint16_t)frame.data[7] << 8) | frame.data[6];
     vehicleRPMCAN = (uint16_t)(mo_drehzahl_raw * 0.25f + 0.5f);
+    lastRPMCANTime = millis(); // RPM is live on CAN (fuel pump relay uses this)
     break;
   }
 

@@ -9,7 +9,7 @@
     <meta http-equiv="Expires" content="0">
 
     <title>Can2Cluster</title>
-    <link rel="stylesheet" href="style.css?v=4.03">
+    <link rel="stylesheet" href="style.css?v=4.04">
 </head>
 
 <body>
@@ -173,6 +173,29 @@
                         <option value="EML">EML Light</option>
                         <option value="EPC">EPC Light</option>
                     </select>
+                </div>
+            </section>
+
+            <section class="card">
+                <h2>Fuel Pump Relay</h2>
+                <p class="hint">Switches a fuel pump relay. Primes at power-up, then runs while the ECU sends RPM on CAN.</p>
+                <div class="input-group">
+                    <label>Fuel Pump Output</label>
+                    <select id="fuelPumpOutput">
+                        <option value="None">None</option>
+                        <option value="EML">EML</option>
+                        <option value="EPC">EPC</option>
+                    </select>
+                </div>
+                <div class="input-group">
+                    <label>Prime Time (seconds)</label>
+                    <input type="number" id="fuelPumpPrime" min="0" max="30" value="3">
+                </div>
+                <div class="status-grid">
+                    <div class="status-item">
+                        <div class="status-label">Fuel Pump</div>
+                        <div class="status-value" id="fuelPumpStatus">--</div>
+                    </div>
                 </div>
             </section>
 
@@ -535,7 +558,7 @@
                 <p style="margin-top: 0; color: var(--text-dim);" data-board="esp32">
                     Drive the MK2 coolant temperature gauge from one of the ULN2003 outputs
                     (EML or EPC). Selecting an output here takes exclusive ownership of that
-                    pin &mdash; any Shift Light or DSG Park use of the same pin is cleared.
+                    pin &mdash; any Shift Light, DSG Park or Fuel Pump Relay use of the same pin is cleared.
                 </p>
                 <p style="margin-top: 0; color: var(--text-dim);" data-board="esp32s3">
                     Drive the MK2 coolant temperature gauge from the dedicated Coolant output
@@ -902,8 +925,8 @@
 
     </div>
 
-    <script src="app.js?v=4.03"></script>
-    <script src="ota.js?v=4.03"></script>
+    <script src="app.js?v=4.04"></script>
+    <script src="ota.js?v=4.04"></script>
 </body>
 
 </html>

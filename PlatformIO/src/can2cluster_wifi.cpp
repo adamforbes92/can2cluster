@@ -223,12 +223,45 @@ static void applyCoolantExclusivity()
     useEMLShiftLight = false;
     testEML = false;
     if (dsgParkMode == "EML") dsgParkMode = "None";
+    if (fuelPumpOutput == "EML") fuelPumpOutput = "None";
   }
   else if (coolantOutput == 2) // EPC pin taken by coolant
   {
     useEPCShiftLight = false;
     testEPC = false;
     if (dsgParkMode == "EPC") dsgParkMode = "None";
+    if (fuelPumpOutput == "EPC") fuelPumpOutput = "None";
+  }
+}
+
+// The fuel pump relay owns its pin outright: when it takes EML or EPC, the
+// shift light, DSG park and coolant gauge (DevKit) are moved off that pin.
+// The web page asks before doing this and clears them first, this makes sure.
+static void applyFuelPumpExclusivity()
+{
+  if (fuelPumpOutput == "EML")
+  {
+    useEMLShiftLight = false;
+    if (dsgParkMode == "EML")
+    {
+      dsgParkMode = "None";
+    }
+    if (coolantOutput == COOLANT_ON_EML)
+    {
+      coolantOutput = COOLANT_OFF; // the output task lets go of the coolant PWM on its next loop
+    }
+  }
+  if (fuelPumpOutput == "EPC")
+  {
+    useEPCShiftLight = false;
+    if (dsgParkMode == "EPC")
+    {
+      dsgParkMode = "None";
+    }
+    if (coolantOutput == COOLANT_ON_EPC)
+    {
+      coolantOutput = COOLANT_OFF; // the output task lets go of the coolant PWM on its next loop
+    }
   }
 }
 
@@ -369,6 +402,8 @@ void setupWebRoutes()
     doc["analyzerMode"] = analyzerMode;
     doc["analyzerSerial"] = analyzerSerial;
     doc["dsgParkMode"] = dsgParkMode;
+    doc["fuelPumpOutput"] = fuelPumpOutput;       // fuel pump relay: "None", "EML" or "EPC"
+    doc["fuelPumpPrime"] = fuelPumpPrimeSeconds;  // power-up prime time, seconds
     doc["paddleOutput"] = paddleOutput;
     if (useCruiseStalk) {
       doc["inputMode"] = "Cruise";  // pins 10/11/12 = MK4 cruise stalk
@@ -472,6 +507,7 @@ void setupWebRoutes()
     doc["vehicleEPC"] = vehicleEPC;
     doc["vehicleReverse"] = vehicleReverse;
     doc["vehiclePark"] = vehiclePark;
+    doc["fuelPumpState"] = fuelPumpState; // 0 off, 1 priming, 2 running (RPM on CAN)
     doc["paddleUp"] = boolPadUp;
     doc["paddleDown"] = boolPadDown;
 
@@ -682,6 +718,22 @@ void setupWebRoutes()
       String mode = value.as<const char*>();
       dsgParkMode = mode;
       applyCoolantExclusivity();
+      settingApplied = true;
+    }
+    if (key == "fuelPumpOutput") {
+      String mode = value.as<const char*>();
+      if (mode == "None" || mode == "EML" || mode == "EPC") {
+        fuelPumpOutput = mode;
+        applyFuelPumpExclusivity();
+        if (mode == "None") {
+          // relay released straight away (the light on that pin takes over again next loop)
+          fuelPumpState = FUEL_PUMP_OFF;
+        }
+        settingApplied = true;
+      }
+    }
+    if (key == "fuelPumpPrime") {
+      fuelPumpPrimeSeconds = constrain(value.as<int>(), 0, FUEL_PUMP_PRIME_MAX); // seconds
       settingApplied = true;
     }
     if (key == "paddleOutput") {

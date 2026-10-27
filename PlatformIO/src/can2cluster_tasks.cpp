@@ -312,16 +312,23 @@ void outputControlTask(void *args)
     bool coolantOwnsEML = (coolantOutput == COOLANT_ON_EML);
     bool coolantOwnsEPC = (coolantOutput == COOLANT_ON_EPC);
 
+    // The fuel pump relay (if used) owns one of the EML/EPC pins outright:
+    // the light, DSG park and shift light never touch that pin.
+    bool fuelPumpOwnsEML = (fuelPumpOutput == "EML");
+    bool fuelPumpOwnsEPC = (fuelPumpOutput == "EPC");
+
     // Normal EML/EPC drive, unless the pin is owned by the blink sequence, the
-    // coolant PWM gauge, or held by a diagnostic test (handled below).
-    if (!blinkOwnsEML && !coolantOwnsEML && !testEML)
+    // coolant PWM gauge, the fuel pump relay, or held by a diagnostic test (handled below).
+    if (!blinkOwnsEML && !coolantOwnsEML && !fuelPumpOwnsEML && !testEML)
     {
       driveEML(finalEML);
     }
-    if (!blinkOwnsEPC && !coolantOwnsEPC && !testEPC)
+    if (!blinkOwnsEPC && !coolantOwnsEPC && !fuelPumpOwnsEPC && !testEPC)
     {
       driveEPC(finalEPC);
     }
+
+    updateFuelPump(); // fuel pump relay: prime at power-up, then on while CAN RPM is there
 
     updateCoolantOutput();
 

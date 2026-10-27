@@ -19,7 +19,8 @@
 //         S3 gets the dedicated coolant gauge output (MCP4725 current sink).
 // V4.01 - MQB paddles rebuilt from the Tplus/Tminus log review (see MQB_PADDLES.md).
 // V4.02 - MK4 cruise stalk + PQ gateway frames, faster needle sweep, settable speedo dial top.
-#define FW_VERSION "4.03"
+// V4.04 - fuel pump relay on the EML or EPC output (prime at power-up, then on while CAN RPM is there).
+#define FW_VERSION "4.04"
 
 // ===== Board =====
 // Which PCB this firmware is built for. Do NOT change it here - pick the env in
@@ -48,6 +49,18 @@
 #define COOLANT_ON_EML 1    // DevKit: PWM on the EML output (EML light can't be used)
 #define COOLANT_ON_EPC 2    // DevKit: PWM on the EPC output (EPC light can't be used)
 #define COOLANT_ON_GAUGE 3  // S3: dedicated COOLANT_OUT pin (J1 pin 16), current sink from the MCP4725
+
+// ===== Fuel pump relay =====
+// The EML or EPC output can switch a fuel pump relay coil (the output pulls the
+// coil's earth side down). At power-up the pump primes for fuelPumpPrimeSeconds,
+// then stays on for as long as the ECU is sending RPM on CAN.
+#define FUEL_PUMP_PRIME_DEFAULT 3     // seconds the pump primes for at power-up (like the factory 2-3 s prime)
+#define FUEL_PUMP_PRIME_MAX 30        // longest prime the web page allows, seconds
+#define FUEL_PUMP_MIN_RPM 50          // CAN RPM at or above this = engine cranking or running (cranking reads ~150-300)
+#define FUEL_PUMP_RPM_TIMEOUT_MS 1000 // no RPM frame for this long = treat RPM as gone and stop the pump
+#define FUEL_PUMP_OFF 0               // web page: pump relay off
+#define FUEL_PUMP_PRIMING 1           // web page: pump on, power-up prime
+#define FUEL_PUMP_RUNNING 2           // web page: pump on, engine RPM seen on CAN
 
 /* Defines */
 // Debug statements
@@ -299,6 +312,7 @@ extern uint16_t stepSpeed;
 
 extern uint8_t vehicleCoolantTemp; // for vehicle coolant temp
 extern uint16_t vehicleRPMCAN;     // current CAN RPM
+extern volatile uint32_t lastRPMCANTime; // millis() when an RPM frame last arrived on CAN, 0 = never
 extern uint16_t vehicleRPM;        // current RPM for cluster
 extern uint16_t vehicleSpeed;      // current Speed for cluster
 extern uint16_t calcSpeed;         // temp var for calculating speed
@@ -415,6 +429,9 @@ extern bool testEML;                      // bool to force turn on EML
 extern bool testEPC;                      // bool to force turn on EPC
 extern bool testReverse;                  // bool to force turn on Reverse
 extern String dsgParkMode;                // DSG Park behavior: "None", "EML", or "EPC"
+extern String fuelPumpOutput;             // fuel pump relay output: "None", "EML" or "EPC"
+extern uint8_t fuelPumpPrimeSeconds;      // how long the pump primes for at power-up, seconds
+extern uint8_t fuelPumpState;             // FUEL_PUMP_OFF / FUEL_PUMP_PRIMING / FUEL_PUMP_RUNNING (shown on the web page)
 extern String paddleOutput;               // which paddle frame(s) to send: "Off", "MQB", "PQ", "All" (see PADDLE_OUTPUT_DEFAULT)
 
 // MK4 cruise stalk (see the "MK4 cruise stalk" section further down)

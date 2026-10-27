@@ -19,6 +19,7 @@ uint16_t stepSpeed = 10;
 // existing variables that were previously defined in header:
 uint8_t vehicleCoolantTemp = 0;
 uint16_t vehicleRPMCAN = 0;
+volatile uint32_t lastRPMCANTime = 0; // no RPM frame yet. "volatile" = set by the CAN task, read by the output task
 uint16_t vehicleRPM = 0;
 uint16_t vehicleSpeed = 0;
 uint16_t calcSpeed = 0;
@@ -133,6 +134,9 @@ bool testEML = false;
 bool testEPC = false;
 bool testReverse = false;
 String dsgParkMode = "None";  // DSG Park behavior: "None", "EML", or "EPC"
+String fuelPumpOutput = "None";                       // fuel pump relay not used until picked on the web page
+uint8_t fuelPumpPrimeSeconds = FUEL_PUMP_PRIME_DEFAULT; // power-up prime time, seconds
+uint8_t fuelPumpState = FUEL_PUMP_OFF;                // pump relay off at start
 String paddleOutput = PADDLE_OUTPUT_DEFAULT; // which paddle frame(s) to send
 
 // MK4 cruise stalk. "volatile" = set by the paddle task and read by the web page.

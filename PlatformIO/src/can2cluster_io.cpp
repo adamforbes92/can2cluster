@@ -299,6 +299,7 @@ void setupPins()
   digitalWrite(pinEML, LOW);     // lights off until outputControlTask decides
   digitalWrite(pinEPC, LOW);
   digitalWrite(pinReverse, LOW);
+  updateFuelPump();              // fuel pump relay (if used) starts its prime now, not after the GPS search
 
   setupBoardSwitches(); // S3: CAN standby/termination + pull-up switches
 
@@ -418,6 +419,64 @@ void driveEML(bool on)
   else
   {
     digitalWrite(pinEML, LOW);
+  }
+}
+
+// Fuel pump relay on the EML or EPC output. Decides whether the pump should
+// run and drives the relay. Called once from setupPins() (so the prime starts
+// straight away at power-up) and then every loop of outputControlTask.
+//   - Power-up: the pump primes for fuelPumpPrimeSeconds.
+//   - Engine cranking / running: on for as long as RPM keeps arriving on CAN.
+//   - Otherwise off: engine stalled, ignition on with the engine off, or the
+//     ECU's RPM frame has stopped (CAN unplugged), so the pump can't run on.
+void updateFuelPump()
+{
+  if (fuelPumpOutput != "EML" && fuelPumpOutput != "EPC")
+  {
+    fuelPumpState = FUEL_PUMP_OFF; // feature not used, leave both pins to their lights
+    return;
+  }
+
+  uint32_t timeNow = millis();
+
+  // Is the ECU sending RPM right now? (an RPM frame has arrived recently and shows the engine turning)
+  bool hasRPMOnCAN = false;
+  if (lastRPMCANTime != 0 && (timeNow - lastRPMCANTime) < FUEL_PUMP_RPM_TIMEOUT_MS && vehicleRPMCAN >= FUEL_PUMP_MIN_RPM)
+  {
+    hasRPMOnCAN = true;
+  }
+
+  // Still inside the power-up prime? (millis() starts at 0 when the board powers up)
+  bool isPriming = false;
+  if (timeNow < (uint32_t)fuelPumpPrimeSeconds * 1000)
+  {
+    isPriming = true;
+  }
+
+  if (hasRPMOnCAN)
+  {
+    fuelPumpState = FUEL_PUMP_RUNNING;
+  }
+  else if (isPriming)
+  {
+    fuelPumpState = FUEL_PUMP_PRIMING;
+  }
+  else
+  {
+    fuelPumpState = FUEL_PUMP_OFF;
+  }
+
+  bool isPumpOn = (fuelPumpState != FUEL_PUMP_OFF);
+
+  // The EML / EPC output test on the Diagnostics tab still wins (it holds the
+  // pin on, handy for checking the relay clicks), so leave a tested pin alone.
+  if (fuelPumpOutput == "EML" && !testEML)
+  {
+    driveEML(isPumpOn);
+  }
+  if (fuelPumpOutput == "EPC" && !testEPC)
+  {
+    driveEPC(isPumpOn);
   }
 }
 
@@ -575,6 +634,17 @@ void blinkLED(int duration, int flashes, bool boolEPC, bool boolEML, bool boolRP
   blinkState.boolRPM = boolRPM;
   blinkState.boolSpeed = boolSpeed;
 
+  // Never flash the pin the fuel pump relay is on (diagnostic mode flashes
+  // both EML and EPC) - flashing it would switch the pump on and off.
+  if (fuelPumpOutput == "EML")
+  {
+    blinkState.boolEML = false;
+  }
+  if (fuelPumpOutput == "EPC")
+  {
+    blinkState.boolEPC = false;
+  }
+
   // Ensure requested outputs start LOW before first ON edge.
   if (blinkState.boolEPC)
   {
@@ -639,10 +709,11 @@ void updateBlinkLED(void)
     if (blinkState.currentFlash >= blinkState.flashCount)
     {
       // Sequence complete - turn off all outputs (but never the pin the
-      // coolant gauge owns on the DevKit, or we'd punch a hole in its PWM).
-      if (coolantOutput != COOLANT_ON_EPC)
+      // coolant gauge owns on the DevKit, or we'd punch a hole in its PWM,
+      // and never the fuel pump relay's pin, or the pump would cut out).
+      if (coolantOutput != COOLANT_ON_EPC && fuelPumpOutput != "EPC")
         driveEPC(false);
-      if (coolantOutput != COOLANT_ON_EML)
+      if (coolantOutput != COOLANT_ON_EML && fuelPumpOutput != "EML")
         driveEML(false);
       digitalWrite(pinRPM, LOW);
       digitalWrite(pinSpeed, LOW);

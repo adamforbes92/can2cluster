@@ -31,6 +31,7 @@ void setupBoardSwitches(void); // S3: set the CAN standby/termination and pull-u
 void driveReverse(bool on); // reverse light MOSFET on/off
 void driveEPC(bool on);     // EPC light output on/off
 void driveEML(bool on);     // EML light output on/off
+void updateFuelPump(void);  // fuel pump relay on EML/EPC: prime at power-up, then on while CAN RPM is there
 
 // Coolant temperature gauge (DevKit: PWM on the shared EML/EPC output, S3: MCP4725 current sink)
 void applyCoolantOutput(void);              // DevKit: (re)attach or detach the LEDC channel to EML/EPC per coolantOutput
